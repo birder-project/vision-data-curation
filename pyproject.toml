@@ -1,0 +1,52 @@
+[project]
+name = "vision_data_curation"
+authors = [{ name = "Ofer Hasson" }]
+description = "A pipeline for curating and sanitizing large-scale image datasets."
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = [
+    "image-processing",
+    "data-curation",
+    "computer-vision",
+    "pytorch",
+    "deep-learning",
+]
+license = "Apache-2.0"
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dynamic = ["dependencies", "version"]
+
+[project.urls]
+Homepage = "https://gitlab.com/birder/vision-data-curation"
+Issues = "https://gitlab.com/birder/vision-data-curation/-/issues"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vdc*"]
+namespaces = false
+
+[tool.setuptools.dynamic]
+version = { attr = "vdc.version.__version__" }
+dependencies = { file = ["requirements/requirements.txt"] }
+
+[tool.black]
+line-length = 120
+exclude = '/(\.git|\.mypy_cache|\.venv|data)/'
+
+[tool.isort]
+line_length = 120
+force_single_line = true
+skip = ["data/", ".venv/"]

@@ -1,0 +1,22 @@
+{
+  "sanitization": {
+    "min_width": 80,
+    "min_height": 80,
+    "max_width": 3200,
+    "max_height": 3200,
+    "min_aspect_ratio": 0.15,
+    "max_aspect_ratio": 6.667,
+    "allowed_formats": [
+      ".jpeg",
+      ".jpg",
+      ".png",
+      ".webp",
+      ".tiff",
+      ".tif",
+      ".bmp",
+      ".gif"
+    ],
+    "max_file_size_mb": 10.0,
+    "check_corruption": true
+  }
+}
