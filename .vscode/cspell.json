@@ -7,16 +7,20 @@
   // words - list of words to be always considered correct
   "words": [
     "argmin",
+    "bfloat",
     "bumpver",
     "cuda",
+    "dtype",
     "isort",
     "kmeans",
     "matplotlib",
     "mypy",
     "numpy",
+    "pyarrow",
     "setuptools",
     "sscd",
     "tqdm",
+    "webdataset",
     "webp"
   ],
   // flagWords - list of words to be always considered incorrect

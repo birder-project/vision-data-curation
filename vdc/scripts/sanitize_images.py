@@ -432,11 +432,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     # First parser for config file only
     config_parser = argparse.ArgumentParser(description="Sanitization Config", add_help=False)
     config_parser.add_argument(
-        "--config",
-        default="config.json",
-        type=str,
-        metavar="FILE",
-        help="JSON config file specifying default arguments",
+        "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
 
     # Main parser
@@ -486,11 +482,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
 
     # Core arguments
     parser.add_argument(  # Does nothing, just so it will show up at the usage message
-        "--config",
-        default="config.json",
-        type=str,
-        metavar="FILE",
-        help="JSON config file specifying default arguments",
+        "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
     parser.add_argument("--force", action="store_true", help="override existing report")
     parser.add_argument("-j", "--num-workers", type=int, default=8, metavar="N", help="number of workers")
@@ -510,8 +502,13 @@ def parse_args() -> argparse.Namespace:
     (config_parser, parser) = get_args_parser()
     (args_config, remaining) = config_parser.parse_known_args()
 
-    if args_config.config is not None:
+    if args_config.config is None:
+        logger.debug("No user config file specified. Loading default bundled config")
+        config = utils.load_default_bundled_config()
+    else:
         config = utils.read_json(args_config.config)
+
+    if config is not None:
         sanitization_config = config.get("sanitization", {})
         parser.set_defaults(**sanitization_config)
 
@@ -521,6 +518,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     logger.debug(f"Running with config of: {args}")
+
+    if settings.RESULTS_DIR.exists() is False:
+        logger.info(f"Creating {settings.RESULTS_DIR} directory...")
+        settings.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.apply_fixes is True and args.backup_dir is not None:
         backup_dir = Path(args.backup_dir)

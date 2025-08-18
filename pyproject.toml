@@ -38,6 +38,9 @@ where = ["."]
 include = ["vdc*"]
 namespaces = false
 
+[tool.setuptools.package-data]
+vdc = ["conf/config.json"]
+
 [tool.setuptools.dynamic]
 version = { attr = "vdc.version.__version__" }
 dependencies = { file = ["requirements/requirements.txt"] }

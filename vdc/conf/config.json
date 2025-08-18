@@ -18,5 +18,13 @@
     ],
     "max_file_size_mb": 10.0,
     "check_corruption": true
+  },
+  "filter_by_examples": {
+    "distance_metric": "cosine",
+    "chunk_size": 100000,
+    "report_threshold": null
+  },
+  "aesthetic_filter": {
+    "report_threshold": null
   }
 }

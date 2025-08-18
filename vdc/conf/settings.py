@@ -7,6 +7,7 @@ from typing import Any
 BASE_DIR = Path(".")
 DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR.joinpath("data")))
 
+MODELS_DIR = BASE_DIR.joinpath("models")
 RESULTS_DIR = BASE_DIR.joinpath("results")
 
 
