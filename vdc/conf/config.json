@@ -26,5 +26,8 @@
   },
   "aesthetic_filter": {
     "report_threshold": null
+  },
+  "nsfw_filter": {
+    "report_threshold": null
   }
 }

@@ -13,37 +13,51 @@ from vdc.scripts import _content_filter
 logger = logging.getLogger(__name__)
 
 
-class AestheticClassifier(nn.Module):
+class Normalization(nn.Module):
+    def __init__(self, shape: list[int]) -> None:
+        super().__init__()
+        self.mean = nn.Buffer(torch.zeros(shape))
+        self.variance = nn.Buffer(torch.ones(shape))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self.mean) / self.variance.sqrt()
+
+
+class NSFWClassifier(nn.Module):
     """
-    Taken from: https://github.com/christophschuhmann/improved-aesthetic-predictor/blob/main/simple_inference.py
-    Original code licensed under Apache-2.0
+    Taken from: https://github.com/LAION-AI/CLIP-based-NSFW-Detector/issues/7
+    Original code licensed under MIT license
     """
 
     def __init__(self, input_dim: int) -> None:
         super().__init__()
-        self.layers = nn.Sequential(
-            nn.Linear(input_dim, 1024),
-            nn.Dropout(0.2),
-            nn.Linear(1024, 128),
-            nn.Dropout(0.2),
-            nn.Linear(128, 64),
-            nn.Dropout(0.1),
-            nn.Linear(64, 16),
-            nn.Linear(16, 1),
-        )
+        self.norm = Normalization([input_dim])
+        self.linear_1 = nn.Linear(input_dim, 64)
+        self.linear_2 = nn.Linear(64, 512)
+        self.linear_3 = nn.Linear(512, 256)
+        self.linear_4 = nn.Linear(256, 1)
+        self.act = nn.ReLU()
+        self.act_out = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = F.normalize(x, dim=-1)
-        return self.layers(x)
+        x = self.norm(x)
+        x = self.act(self.linear_1(x))
+        x = self.act(self.linear_2(x))
+        x = self.act(self.linear_3(x))
+        x = self.act_out(self.linear_4(x))
+        x = 1 - x  # Make sure higher is better (as in the aesthetic classifier)
+
+        return x
 
 
 FILTER = {
-    "model_class": AestheticClassifier,
-    "model_name": "aesthetic-predictor",
-    "model_file": "openai-clip_aesthetic-predictor.pt",
-    "model_sha256": "21dd590f3ccdc646f0d53120778b296013b096a035a2718c9cb0d511bff0f1e0",
-    "score_label": "aesthetic_score",
-    "default_output": settings.RESULTS_DIR.joinpath("aesthetic_filter_report.csv"),
+    "model_class": NSFWClassifier,
+    "model_name": "nsfw-predictor",
+    "model_file": "openai-clip_nsfw-predictor.pt",
+    "model_sha256": "c0b8d7905cc1a315af2f3505222c8d81d339e64eb4cd4011912b645ab8bee4f1",
+    "score_label": "nsfw_score",
+    "default_output": settings.RESULTS_DIR.joinpath("nsfw_filter_report.csv"),
 }
 
 
@@ -57,12 +71,10 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     # Main parser
     parser = argparse.ArgumentParser(
         allow_abbrev=False,
-        description="Filter images by aesthetic score using pre-computed embeddings",
+        description="Filter images by nsfw score using pre-computed embeddings",
         epilog=(
             "Usage examples:\n"
-            "python -m vdc.scripts.aesthetic_filter --device cuda --report-threshold 5.0 data/dataset_embeddings.csv\n"
-            "python -m vdc.scripts.aesthetic_filter --report-threshold 6.0 "
-            "results/vit_l14_pn_quick_gelu_openai-clip_768_224px_crop1.0_201399_iwildcam2022_output.csv\n"
+            "python -m vdc.scripts.nsfw_filter --device cuda --report-threshold 0.5 data/dataset_embeddings.csv\n"
         ),
         formatter_class=cli.ArgumentHelpFormatter,
     )
@@ -73,7 +85,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         "--report-threshold",
         type=float,
         metavar="TH",
-        help="only include samples with score below this threshold in the report (aesthetic scores range from 0-10)",
+        help=("only include samples with score below this threshold in the report (nsfw scores range from 0-1)"),
     )
 
     # Core arguments
@@ -88,9 +100,9 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     parser.add_argument(
         "--output-csv",
         type=str,
-        default=str(settings.RESULTS_DIR.joinpath("aesthetic_filter_report.csv")),
+        default=str(settings.RESULTS_DIR.joinpath("nsfw_filter_report.csv")),
         metavar="FILE",
-        help="output CSV file for aesthetic report",
+        help="output CSV file for nsfw report",
     )
     parser.add_argument("embeddings_path", help="path to embeddings file")
 
@@ -108,7 +120,7 @@ def parse_args() -> argparse.Namespace:
         config = utils.read_json(args_config.config)
 
     if config is not None:
-        filter_config = config.get("aesthetic_filter", {})
+        filter_config = config.get("nsfw_filter", {})
         parser.set_defaults(**filter_config)
 
     return parser.parse_args(remaining)
