@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def filter_by_examples(args: argparse.Namespace) -> None:
-    if os.path.exists(args.output_csv) is True and not args.force:
+    if os.path.exists(args.output_csv) is True and args.force is False:
         logger.warning(f"Report already exists at: {args.output_csv}, use --force to overwrite")
         return
 

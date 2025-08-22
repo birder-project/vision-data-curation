@@ -29,5 +29,12 @@
   },
   "nsfw_filter": {
     "report_threshold": null
+  },
+  "apply_score_filter": {},
+  "hierarchical_kmeans": {
+    "max_iters": 50,
+    "tol": 0.0001,
+    "distance_metric": "cosine",
+    "init_method": "kmeans++"
   }
 }

@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 import torch
 
@@ -172,3 +173,84 @@ class TestInferenceCSVDataset(unittest.TestCase):
 
                 # Check the metadata strings
                 self.assertEqual(actual_metadata, expected_metadata)
+
+
+class TestCreateSafeBackupPath(unittest.TestCase):
+    def test_relative_paths(self) -> None:
+        backup_root = Path("backup")
+        test_cases = [
+            ("data/scraped_data/img1.jpg", "data/scraped_data/img1.jpg"),
+            ("data/scraped_data/img2.png", "data/scraped_data/img2.png"),
+            ("data/scraped_data/subfolder/img3.jpg", "data/scraped_data/subfolder/img3.jpg"),
+        ]
+        for source, expected_relative in test_cases:
+            with self.subTest(source=source):
+                expected_path = backup_root / Path(expected_relative)
+                self.assertEqual(utils.build_backup_path(source, backup_root), expected_path)
+
+    def test_relative_paths_with_parent_and_current_references(self) -> None:
+        backup_root = Path("backup")
+        test_cases = [
+            ("../other_project/data/scraped_data/img1.jpg", "parent/other_project/data/scraped_data/img1.jpg"),
+            ("../../shared_data/images/img5.png", "parent/parent/shared_data/images/img5.png"),
+            ("../parent_dir/../sibling_dir/img6.jpg", "parent/parent_dir/parent/sibling_dir/img6.jpg"),
+            ("./data/scraped_data/img9.jpg", "data/scraped_data/img9.jpg"),
+            ("data/../data/scraped_data/img10.png", "data/parent/data/scraped_data/img10.png"),
+            ("data/./scraped_data/img11.jpg", "data/scraped_data/img11.jpg"),
+            ("../../parent/../another_parent/path/img.jpg", "parent/parent/parent/parent/another_parent/path/img.jpg"),
+        ]
+        for source, expected_relative in test_cases:
+            with self.subTest(source=source):
+                expected_path = backup_root / Path(expected_relative)
+                self.assertEqual(utils.build_backup_path(source, backup_root), expected_path)
+
+    def test_absolute_paths_unix_like(self) -> None:
+        backup_root = Path("backup")
+        test_cases = [
+            ("/mnt/data/scraped_data/img1.jpg", "mnt/data/scraped_data/img1.jpg"),
+            ("/mnt/data/scraped_data/dataset.csv", "mnt/data/scraped_data/dataset.csv"),
+            ("/home/user/project/data/img4.jpg", "home/user/project/data/img4.jpg"),
+        ]
+        for source, expected_relative in test_cases:
+            with self.subTest(source=source):
+                expected_path = backup_root / Path(expected_relative)
+                self.assertEqual(utils.build_backup_path(source, backup_root), expected_path)
+
+    def test_absolute_paths_windows_like(self) -> None:
+        backup_root = Path("backup")
+        test_cases = [
+            ("C:\\Users\\Data\\scraped_data\\img7.jpg", "C:\\Users\\Data\\scraped_data\\img7.jpg"),
+            ("D:\\Projects\\data\\img8.png", "D:\\Projects\\data\\img8.png"),
+        ]
+        for source, expected_relative in test_cases:
+            with self.subTest(source=source):
+                expected_path = backup_root / Path(expected_relative)
+                self.assertEqual(utils.build_backup_path(source, backup_root), expected_path)
+
+    def test_edge_cases_and_errors(self) -> None:
+        backup_root = Path("backup")
+
+        # Empty source path
+        with self.subTest(source=""):
+            with self.assertRaises(ValueError):
+                utils.build_backup_path("", backup_root)
+
+        # Source path is just '.'
+        with self.subTest(source="."):
+            with self.assertRaises(ValueError):
+                utils.build_backup_path(".", backup_root)
+
+        # Source path is an empty string part (e.g., from `//` in `Path` creation)
+        with self.subTest(source="data//file.txt"):
+            expected_path = backup_root / Path("data/file.txt")
+            self.assertEqual(utils.build_backup_path("data//file.txt", backup_root), expected_path)
+
+        # Source path is an absolute root
+        if os.name == "posix":
+            with self.subTest(source="/"):
+                with self.assertRaises(ValueError):
+                    utils.build_backup_path("/", backup_root)
+
+            with self.subTest(source="/mnt/"):
+                expected_path = backup_root / Path("mnt")
+                self.assertEqual(utils.build_backup_path("/mnt/", backup_root), expected_path)

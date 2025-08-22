@@ -97,7 +97,7 @@ def _perform_remediation_action(file_path: str, action: RemediationAction, args:
         Path to the image file.
     action
         The remediation action to perform.
-    args : argparse.Namespace
+    args
         Argparse namespace containing script arguments (e.g., backup_dir, max_width).
 
     Returns
@@ -108,8 +108,8 @@ def _perform_remediation_action(file_path: str, action: RemediationAction, args:
     backup_successful = False
     original_path = Path(file_path)
     if args.backup_dir is not None:
-        backup_dir = Path(args.backup_dir)
-        backup_path = backup_dir / original_path.name
+        backup_path = utils.build_backup_path(original_path, args.backup_dir)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
         if backup_path.exists() is True:
             logger.error(f"Backup file already exists: {backup_path}. Skipping remediation.")
             return False
@@ -322,7 +322,7 @@ def validate_image(image_path: str, args: argparse.Namespace) -> ValidationResul
 
 
 def sanitize_images(args: argparse.Namespace) -> None:
-    if os.path.exists(args.output_csv) is True and not args.force:
+    if os.path.exists(args.output_csv) is True and args.force is False:
         logger.warning(f"Report already exists at: {args.output_csv}, use --force to overwrite")
         return
 

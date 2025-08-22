@@ -20,7 +20,7 @@ def run_filter(args: argparse.Namespace, filter_config: dict[str, Any]) -> None:
     model_name = filter_config["model_name"]
     model_file = filter_config["model_file"]
 
-    if os.path.exists(args.output_csv) is True and not args.force:
+    if os.path.exists(args.output_csv) is True and args.force is False:
         logger.warning(f"Report already exists at: {args.output_csv}, use --force to overwrite")
         return
 

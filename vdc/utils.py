@@ -2,6 +2,7 @@ import importlib.resources
 import json
 import os
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from typing import Optional
 
@@ -45,8 +46,8 @@ def read_embeddings(path: str) -> npt.NDArray[np.float32]:
     schema = pl.read_csv(path, n_rows=1).schema
     schema_overrides = {name: (pl.Float32 if dtype == pl.Float64 else dtype) for name, dtype in schema.items()}
 
-    df = pl.read_csv(path, schema_overrides=schema_overrides)
-    return df.select(pl.exclude(["sample"])).to_numpy()
+    df_lazy = pl.scan_csv(path, schema_overrides=schema_overrides).select(pl.exclude(["sample"]))
+    return df_lazy.collect().to_numpy()
 
 
 def csv_iter(path: str, batch_size: Optional[int] = None, batches_per_yield: int = 100) -> Iterator[pl.DataFrame]:
@@ -207,3 +208,57 @@ class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=
                     ]
 
                     yield (row_tensor, *row_metadata_values)
+
+
+def build_backup_path(source: Path | str, backup_root: Path | str) -> Path:
+    """
+    Generate a safe backup path that preserves the directory structure of the source
+
+    For absolute paths (e.g., /foo/bar.txt), the path is reconstructed relative to its root or drive.
+    For relative paths (e.g., foo/bar.txt or ../baz.txt), ".." components are replaced to prevent
+    path traversal issues.
+
+
+    Parameters
+    ----------
+    source
+        The original path of the file to be backed up.
+    backup_root
+        The root directory where backups should be stored.
+
+    Returns
+    -------
+    The full path to the safe backup location.
+
+    Raises
+    ------
+    ValueError
+        If the source path is empty or resolves to a problematic structure
+        that cannot be safely represented (e.g., a root directory by itself).
+    """
+
+    source = Path(source)
+    backup_root = Path(backup_root)
+    if source.is_absolute() is True:
+        sanitized_parts = []
+        for part in source.parts:
+            # Skip Windows drive letters like "C:"
+            if part in ("/", "\\") or (len(part) == 2 and part.endswith(":") is True):
+                continue
+
+            sanitized_parts.append(part)
+
+    else:
+        sanitized_parts = []
+        for part in source.parts:
+            if part == "..":
+                sanitized_parts.append("parent")
+            elif part in (".", ""):
+                continue
+            else:
+                sanitized_parts.append(part)
+
+    if len(sanitized_parts) == 0:
+        raise ValueError(f"Invalid source path: {source}")
+
+    return backup_root / Path(*sanitized_parts)
