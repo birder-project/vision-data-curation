@@ -17,10 +17,12 @@
     "matplotlib",
     "mypy",
     "numpy",
+    "popleft",
     "pyarrow",
     "setuptools",
     "sscd",
     "tqdm",
+    "venv",
     "webdataset",
     "webp"
   ],

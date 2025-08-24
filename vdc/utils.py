@@ -15,6 +15,10 @@ import torch.utils.data
 
 
 def load_default_bundled_config() -> Optional[dict[str, Any]]:
+    for file_path in ["config.json", "vdc/conf/config.json"]:
+        if os.path.exists(file_path) is True:
+            return read_json(file_path)
+
     try:
         resource_path = importlib.resources.files("vdc.conf").joinpath("config.json")
 
@@ -27,10 +31,6 @@ def load_default_bundled_config() -> Optional[dict[str, Any]]:
     except ModuleNotFoundError:
         # Module not found, try at alternate locations
         pass
-
-    for file_path in ["config.json", "vdc/conf/config.json"]:
-        if os.path.exists(file_path) is True:
-            return read_json("config.json")
 
     return None
 

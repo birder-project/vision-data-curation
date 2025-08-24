@@ -1,5 +1,6 @@
 import argparse
 import logging
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -43,7 +44,6 @@ FILTER = {
     "model_file": "openai-clip_aesthetic-predictor.pt",
     "model_sha256": "21dd590f3ccdc646f0d53120778b296013b096a035a2718c9cb0d511bff0f1e0",
     "score_label": "aesthetic_score",
-    "default_output": settings.RESULTS_DIR.joinpath("aesthetic_filter_report.csv"),
 }
 
 
@@ -53,6 +53,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     config_parser.add_argument(
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
+    config_parser.add_argument("--project", type=str, metavar="NAME", help="name of the project")
 
     # Main parser
     parser = argparse.ArgumentParser(
@@ -80,18 +81,15 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     parser.add_argument(  # Does nothing, just so it will show up at the usage message
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
+    parser.add_argument(  # Does nothing, just so it will show up at the usage message
+        "--project", type=str, metavar="NAME", help="name of the project"
+    )
     parser.add_argument("--device", default="auto", help="device to use for computations (cpu, cuda, mps, ...)")
     parser.add_argument(
         "--inference-batch-size", type=int, default=2048, metavar="N", help="batch size for model inference"
     )
     parser.add_argument("--force", action="store_true", help="override existing report")
-    parser.add_argument(
-        "--output-csv",
-        type=str,
-        default=str(settings.RESULTS_DIR.joinpath("aesthetic_filter_report.csv")),
-        metavar="FILE",
-        help="output CSV file for aesthetic report",
-    )
+    parser.add_argument("--output-csv", type=str, metavar="FILE", help="output CSV file for aesthetic report")
     parser.add_argument("embeddings_path", help="path to embeddings file")
 
     return (config_parser, parser)
@@ -107,6 +105,16 @@ def parse_args() -> argparse.Namespace:
     else:
         config = utils.read_json(args_config.config)
 
+    if args_config.project is not None:
+        project_dir = settings.RESULTS_DIR.joinpath(args_config.project)
+    else:
+        project_dir = settings.RESULTS_DIR
+
+    default_paths = {
+        "output_csv": str(project_dir.joinpath("aesthetic_filter_report.csv")),
+    }
+    parser.set_defaults(**default_paths)
+
     if config is not None:
         filter_config = config.get("aesthetic_filter", {})
         parser.set_defaults(**filter_config)
@@ -118,9 +126,11 @@ def main() -> None:
     args = parse_args()
     logger.debug(f"Running with config: {args}")
 
-    if settings.RESULTS_DIR.exists() is False:
-        logger.info(f"Creating {settings.RESULTS_DIR} directory...")
-        settings.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output_csv).parent
+    if output_dir.exists() is False:
+        logger.info(f"Creating {output_dir} directory...")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
     if settings.MODELS_DIR.exists() is False:
         logger.info(f"Creating {settings.MODELS_DIR} directory...")
         settings.MODELS_DIR.mkdir(parents=True, exist_ok=True)

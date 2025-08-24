@@ -8,6 +8,7 @@ from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
 from dataclasses import dataclass
 from dataclasses import field
+from datetime import datetime
 from enum import StrEnum
 from itertools import chain
 from pathlib import Path
@@ -321,12 +322,23 @@ def validate_image(image_path: str, args: argparse.Namespace) -> ValidationResul
     return resolve_violations(collected_violations)
 
 
+# pylint: disable=too-many-locals
 def sanitize_images(args: argparse.Namespace) -> None:
-    if os.path.exists(args.output_csv) is True and args.force is False:
+    if os.path.exists(args.output_csv) is True and args.force is False and args.append is False:
         logger.warning(f"Report already exists at: {args.output_csv}, use --force to overwrite")
         return
 
+    if os.path.exists(args.output_csv) is True and args.append is True:
+        write_mode = "a"
+    else:
+        write_mode = "w"
+
     logger.info(f"Sanitizing images in: {', '.join(args.data_path)}")
+    if args.apply_fixes is True:
+        logger.info("ATTENTION: Running in destructive mode, '--apply-fixes' is enabled")
+    else:
+        logger.info("No actions will be taken")
+
     logger.info(f"Report will be saved to: {args.output_csv}")
     logger.info(f"Using {args.num_workers} worker processes")
 
@@ -334,12 +346,16 @@ def sanitize_images(args: argparse.Namespace) -> None:
         fs_ops.file_iter(path, extensions=args.allowed_formats) for path in args.data_path
     )
 
-    corrupted_count = 0
     total_files_scanned = 0
+    total_violations_found = 0
+    fixes_applied = 0
+    fixes_failed = 0
+    total_deleted_file = 0
     tic = time.time()
-    with open(args.output_csv, "w", newline="", encoding="utf-8") as csv_file:
+    with open(args.output_csv, write_mode, newline="", encoding="utf-8") as csv_file:
         csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(["file_name", "violation_summary", "decided_action", "remediation_status"])
+        if write_mode == "w":
+            csv_writer.writerow(["timestamp", "file_name", "violation_summary", "decided_action", "remediation_status"])
 
         initial_fill_target = args.num_workers * 100
         with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
@@ -361,7 +377,7 @@ def sanitize_images(args: argparse.Namespace) -> None:
             # Phase 2: Continuous processing
             # Now, we continuously process completed tasks and submit new ones.
             with tqdm(desc="Processing images", leave=False, unit="files") as progress_bar:
-                while len(active_futures) > 0:
+                while len(active_futures) > 0:  # pylint: disable=too-many-nested-blocks
                     try:
                         for future in as_completed(active_futures, timeout=1.0):
                             original_file_path = active_futures.pop(future)
@@ -369,20 +385,20 @@ def sanitize_images(args: argparse.Namespace) -> None:
                                 result = future.result()
                                 remediation_status = "NoFixAttempted"
                                 if result.is_valid is False:
-                                    corrupted_count += 1
-                                    if args.dry_run is True and result.action is not None:
-                                        remediation_status = "DryRun"
-                                        progress_bar.write(
-                                            f"WOULD {result.action.value}: {original_file_path} - {result.violation}"
-                                        )
-                                    elif args.apply_fixes is True and result.action is not None:
+                                    total_violations_found += 1
+                                    if args.apply_fixes is True and result.action is not None:
                                         if _perform_remediation_action(original_file_path, result.action, args) is True:
                                             remediation_status = "Applied"
+                                            fixes_applied += 1
+                                            if result.action == RemediationAction.DELETE:
+                                                total_deleted_file += 1
                                         else:
                                             remediation_status = "Failed"
+                                            fixes_failed += 1
 
                                     csv_writer.writerow(
                                         [
+                                            datetime.now().isoformat(),
                                             original_file_path,
                                             result.violation,
                                             (
@@ -423,8 +439,13 @@ def sanitize_images(args: argparse.Namespace) -> None:
     toc = time.time()
     rate = total_files_scanned / (toc - tic)
     logger.info(f"{format_duration(toc - tic)} to scan {total_files_scanned:,} samples ({rate:.2f} samples/sec)")
-    logger.info(f"Total files scanned: {total_files_scanned}")
-    logger.info(f"Images with violations found: {corrupted_count}")
+    logger.info(f"Total files scanned: {total_files_scanned:,}")
+    logger.info(f"Images with violations found: {total_violations_found:,}")
+    if args.apply_fixes is True:
+        logger.info(f"Fixes attempted: {fixes_applied + fixes_failed:,}")
+        logger.info(f"Fixes applied: {fixes_applied:,} (deleted {total_deleted_file:,})")
+        logger.info(f"Fixes failed: {fixes_failed:,}")
+
     logger.info(f"Report of files with detected violations saved to: {args.output_csv}")
 
 
@@ -434,6 +455,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     config_parser.add_argument(
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
+    config_parser.add_argument("--project", type=str, metavar="NAME", help="name of the project")
 
     # Main parser
     parser = argparse.ArgumentParser(
@@ -441,7 +463,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         description="Sanitize images by removing corrupted files and filtering by size/aspect ratio",
         epilog=(
             "Usage examples:\n"
-            "python -m vdc.scripts.sanitize_images -j 8 --dry-run data/raw_data\n"
+            "python -m vdc.scripts.sanitize_images -j 8 data/raw_data\n"
             "python -m vdc.scripts.sanitize_images --config custom_config.json --apply-fixes data/raw_data\n"
             "python -m vdc.scripts.sanitize_images -j 16 --max-ratio 5.0 data/raw_data /mnt/data/collections\n"
         ),
@@ -470,29 +492,23 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         "--apply-fixes", action="store_true", help="automatically fix issues (USE WITH CAUTION)"
     )
     remediation_group.add_argument(
-        "--backup-dir",
-        type=str,
-        default=str(settings.DATA_DIR.joinpath("backup")),
-        metavar="DIR",
-        help="backup directory for original files before remediation",
+        "--backup-dir", type=str, metavar="DIR", help="backup directory for original files before remediation"
     )
     remediation_group.add_argument(
-        "--dry-run", action="store_true", help="show what would be done without making changes"
+        "--no-backup", action="store_true", help="disable backup creation (files will be deleted without backup)"
     )
 
     # Core arguments
     parser.add_argument(  # Does nothing, just so it will show up at the usage message
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
-    parser.add_argument("--force", action="store_true", help="override existing report")
-    parser.add_argument("-j", "--num-workers", type=int, default=8, metavar="N", help="number of workers")
-    parser.add_argument(
-        "--output-csv",
-        type=str,
-        default=str(settings.RESULTS_DIR.joinpath("sanitization_report.csv")),
-        metavar="FILE",
-        help="output CSV file for sanitization report",
+    parser.add_argument(  # Does nothing, just so it will show up at the usage message
+        "--project", type=str, metavar="NAME", help="name of the project"
     )
+    parser.add_argument("--force", action="store_true", help="override existing report")
+    parser.add_argument("--append", action="store_true", help="append to an existing report instead of overwriting")
+    parser.add_argument("-j", "--num-workers", type=int, default=8, metavar="N", help="number of workers")
+    parser.add_argument("--output-csv", type=str, metavar="FILE", help="output CSV file for sanitization report")
     parser.add_argument("data_path", nargs="+", help="data files path (directories and files)")
 
     return (config_parser, parser)
@@ -508,6 +524,19 @@ def parse_args() -> argparse.Namespace:
     else:
         config = utils.read_json(args_config.config)
 
+    if args_config.project is not None:
+        project_dir = settings.RESULTS_DIR.joinpath(args_config.project)
+        backup_dir = settings.DATA_DIR.joinpath("backup").joinpath(args_config.project)
+    else:
+        project_dir = settings.RESULTS_DIR
+        backup_dir = settings.DATA_DIR.joinpath("backup")
+
+    default_paths = {
+        "output_csv": str(project_dir.joinpath("sanitization_report.csv")),
+        "backup_dir": str(backup_dir),
+    }
+    parser.set_defaults(**default_paths)
+
     if config is not None:
         sanitization_config = config.get("sanitization", {})
         parser.set_defaults(**sanitization_config)
@@ -517,12 +546,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.force is True and args.append is True:
+        raise ValueError("--force cannot be used with --append")
+
     logger.debug(f"Running with config of: {args}")
 
-    if settings.RESULTS_DIR.exists() is False:
-        logger.info(f"Creating {settings.RESULTS_DIR} directory...")
-        settings.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output_csv).parent
+    if output_dir.exists() is False:
+        logger.info(f"Creating {output_dir} directory...")
+        output_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.no_backup is True:
+        args.backup_dir = None
     if args.apply_fixes is True and args.backup_dir is not None:
         backup_dir = Path(args.backup_dir)
         if backup_dir.exists() is False:

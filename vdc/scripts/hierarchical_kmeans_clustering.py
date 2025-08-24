@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import polars as pl
@@ -62,6 +63,17 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
         )
         return
 
+    if args.method == "resampled":
+        if args.n_samples is None:
+            logger.error("Error: --n-samples must be provided when --method is 'resampled'")
+            return
+        if len(args.n_samples) != len(args.n_clusters):
+            logger.error(
+                f"Error: Length of --n-samples ({len(args.n_samples)}) must match length of --n-clusters "
+                f"({len(args.n_clusters)}) when --method is 'resampled'"
+            )
+            return
+
     # Determine device
     if args.device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -74,11 +86,16 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
     logger.info(f"Number of clusters per level: {args.n_clusters}")
     logger.info(f"Distance metric: {args.distance_metric}")
     logger.info(f"Initialization method: {args.init_method}")
+    logger.info(f"Hierarchical method: {args.method}")
+    if args.method == "resampled":
+        logger.info(f"Number of samples per level: {args.n_samples}")
+        logger.info(f"Number of resamples: {args.n_resamples}")
+
     logger.info(f"Centers will be saved to: {args.output_centers_csv}")
     logger.info(f"Assignments will be saved to: {args.output_assignments_csv}")
     logger.info(f"Using device: {device}")
 
-    embeddings = torch.tensor(utils.read_embeddings(args.embeddings_path), device=device)
+    embeddings = torch.tensor(utils.read_embeddings(args.embeddings_path))
     sample_names = pl.scan_csv(args.embeddings_path).select(["sample"]).collect().to_series().to_list()
 
     tic = time.time()
@@ -92,6 +109,10 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
         args.chunk_size,
         show_progress=True,
         random_seed=args.random_seed,
+        device=device,
+        method=args.method,
+        n_samples=args.n_samples,
+        n_resamples=args.n_resamples,
     )
     _save_hierarchical_clusters_to_csv(hierarchical_clusters, args.output_centers_csv)
     logger.info(f"Centers saved to: {args.output_centers_csv}")
@@ -110,6 +131,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     config_parser.add_argument(
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
+    config_parser.add_argument("--project", type=str, metavar="NAME", help="name of the project")
 
     # Main parser
     parser = argparse.ArgumentParser(
@@ -123,6 +145,8 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
             "--n-clusters 50000 --distance-metric l2 data/large_embeddings.csv\n"
             "python -m vdc.scripts.hierarchical_kmeans_clustering --n-clusters 1000 50 --max-iters 20 "
             "--device cpu results/vit_l14_pn_bioclip-v2_1024_224px_crop1.0_167015_embeddings.csv\n"
+            "python -m vdc.scripts.hierarchical_kmeans_clustering --n-clusters 1000 50 10 --method resampled "
+            "--n-samples 50 4 0 data/sample_embeddings.csv\n"
         ),
         formatter_class=cli.ArgumentHelpFormatter,
     )
@@ -156,6 +180,25 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         help="number of data points to process in a single batch during distance computations (to save memory)",
     )
     clustering_group.add_argument(
+        "--method",
+        choices=["centers", "resampled"],
+        metavar="METHOD",
+        help="method for building hierarchy: 'centers' (traditional) or 'resampled' (with refinement)",
+    )
+    clustering_group.add_argument(
+        "--n-samples",
+        type=int,
+        nargs="+",
+        metavar="N",
+        help="number of samples to resample per cluster at each level (required when --method=resampled)",
+    )
+    clustering_group.add_argument(
+        "--n-resamples",
+        type=int,
+        metavar="N",
+        help="number of resampling steps to perform for each level when --method=resampled",
+    )
+    clustering_group.add_argument(
         "--random-seed", type=int, default=None, metavar="SEED", help="random seed for reproducibility"
     )
 
@@ -163,19 +206,17 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     parser.add_argument(  # Does nothing, just so it will show up at the usage message
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
+    parser.add_argument(  # Does nothing, just so it will show up at the usage message
+        "--project", type=str, metavar="NAME", help="name of the project"
+    )
     parser.add_argument("--device", default="auto", help="device to use for computations (cpu, cuda, mps, ...)")
     parser.add_argument("--force", action="store_true", help="override existing results")
     parser.add_argument(
-        "--output-centers-csv",
-        type=str,
-        default=str(settings.RESULTS_DIR.joinpath("hierarchical_kmeans_centers.csv")),
-        metavar="FILE",
-        help="output CSV file for all hierarchical cluster centers",
+        "--output-centers-csv", type=str, metavar="FILE", help="output CSV file for all hierarchical cluster centers"
     )
     parser.add_argument(
         "--output-assignments-csv",
         type=str,
-        default=str(settings.RESULTS_DIR.joinpath("hierarchical_kmeans_assignments.csv")),
         metavar="FILE",
         help="output CSV file for hierarchical assignments of original samples",
     )
@@ -194,6 +235,17 @@ def parse_args() -> argparse.Namespace:
     else:
         config = utils.read_json(args_config.config)
 
+    if args_config.project is not None:
+        project_dir = settings.RESULTS_DIR.joinpath(args_config.project)
+    else:
+        project_dir = settings.RESULTS_DIR
+
+    default_paths = {
+        "output_centers_csv": str(project_dir.joinpath("hierarchical_kmeans_centers.csv")),
+        "output_assignments_csv": str(project_dir.joinpath("hierarchical_kmeans_assignments.csv")),
+    }
+    parser.set_defaults(**default_paths)
+
     if config is not None:
         kmeans_config = config.get("hierarchical_kmeans", {})
         parser.set_defaults(**kmeans_config)
@@ -205,9 +257,14 @@ def main() -> None:
     args = parse_args()
     logger.debug(f"Running with config: {args}")
 
-    if settings.RESULTS_DIR.exists() is False:
-        logger.info(f"Creating {settings.RESULTS_DIR} directory...")
-        settings.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output_centers_csv).parent
+    if output_dir.exists() is False:
+        logger.info(f"Creating {output_dir} directory...")
+        output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output_assignments_csv).parent
+    if output_dir.exists() is False:
+        logger.info(f"Creating {output_dir} directory...")
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     hierarchical_kmeans_clustering(args)
 

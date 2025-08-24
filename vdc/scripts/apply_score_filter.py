@@ -233,6 +233,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     config_parser.add_argument(
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
     )
+    config_parser.add_argument("--project", type=str, metavar="NAME", help="name of the project")
 
     # Main parser
     parser = argparse.ArgumentParser(
@@ -254,11 +255,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         "--apply-deletion", action="store_true", help="delete images matching the filter (USE WITH CAUTION)"
     )
     remediation_group.add_argument(
-        "--backup-dir",
-        type=str,
-        default=str(settings.DATA_DIR.joinpath("backup")),  # NOTE: Ability to run without backup
-        metavar="DIR",
-        help="backup directory for original files before remediation",
+        "--backup-dir", type=str, metavar="DIR", help="backup directory for original files before remediation"
     )
     remediation_group.add_argument(
         "--no-backup", action="store_true", help="disable backup creation (files will be deleted without backup)"
@@ -267,6 +264,9 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     # Core arguments
     parser.add_argument(  # Does nothing, just so it will show up at the usage message
         "--config", type=str, metavar="FILE", help="JSON config file specifying default arguments"
+    )
+    parser.add_argument(  # Does nothing, just so it will show up at the usage message
+        "--project", type=str, metavar="NAME", help="name of the project"
     )
     parser.add_argument("--force", action="store_true", help="override existing output report")
     parser.add_argument("-j", "--num-workers", type=int, default=8, metavar="N", help="number of workers")
@@ -291,13 +291,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         metavar="TH",
         help="images with scores BELOW this value will be targeted for deletion",
     )
-    parser.add_argument(
-        "--output-csv",
-        type=str,
-        default=str(settings.RESULTS_DIR.joinpath("score_filter_actions_report.csv")),
-        metavar="FILE",
-        help="output CSV file for the actions taken report",
-    )
+    parser.add_argument("--output-csv", type=str, metavar="FILE", help="output CSV file for the actions taken report")
 
     return (config_parser, parser)
 
@@ -312,9 +306,22 @@ def parse_args() -> argparse.Namespace:
     else:
         config = utils.read_json(args_config.config)
 
+    if args_config.project is not None:
+        project_dir = settings.RESULTS_DIR.joinpath(args_config.project)
+        backup_dir = settings.DATA_DIR.joinpath("backup").joinpath(args_config.project)
+    else:
+        project_dir = settings.RESULTS_DIR
+        backup_dir = settings.DATA_DIR.joinpath("backup")
+
+    default_paths = {
+        "output_csv": str(project_dir.joinpath("score_filter_actions_report.csv")),
+        "backup_dir": str(backup_dir),
+    }
+    parser.set_defaults(**default_paths)
+
     if config is not None:
-        sanitization_config = config.get("sanitization", {})
-        parser.set_defaults(**sanitization_config)
+        apply_config = config.get("apply_score_filter", {})
+        parser.set_defaults(**apply_config)
 
     return parser.parse_args(remaining)
 
@@ -323,9 +330,10 @@ def main() -> None:
     args = parse_args()
     logger.debug(f"Running with config: {args}")
 
-    if settings.RESULTS_DIR.exists() is False:
-        logger.info(f"Creating {settings.RESULTS_DIR} directory...")
-        settings.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(args.output_csv).parent
+    if output_dir.exists() is False:
+        logger.info(f"Creating {output_dir} directory...")
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.no_backup is True:
         args.backup_dir = None

@@ -35,6 +35,12 @@
     "max_iters": 50,
     "tol": 0.0001,
     "distance_metric": "cosine",
-    "init_method": "kmeans++"
+    "init_method": "kmeans++",
+    "method": "centers",
+    "n_resamples": 10
+  },
+  "hierarchical_sampling": {
+    "sampling_strategy": "random",
+    "allocation_strategy": "water-filling"
   }
 }
