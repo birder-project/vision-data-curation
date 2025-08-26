@@ -8,7 +8,7 @@ import torch
 from vdc import utils
 
 
-class TestInferenceCSVDataset(unittest.TestCase):
+class TestInferenceDataset(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.mkdtemp()
         self.csv_file_path_1 = os.path.join(self.temp_dir, "test_data1.csv")
@@ -40,7 +40,7 @@ class TestInferenceCSVDataset(unittest.TestCase):
         os.rmdir(self.temp_dir)
 
     def test_basic_iteration(self) -> None:
-        dataset = utils.InferenceCSVDataset(self.csv_file_path_1)
+        dataset = utils.InferenceDataset(self.csv_file_path_1)
         collected_data = list(dataset)
 
         expected_data = [
@@ -62,7 +62,7 @@ class TestInferenceCSVDataset(unittest.TestCase):
                 self.assertEqual(expected_tensor.shape, (3,))
 
     def test_columns_to_drop(self) -> None:
-        dataset = utils.InferenceCSVDataset(file_paths=self.csv_file_path_1, columns_to_drop=["col2"])
+        dataset = utils.InferenceDataset(file_paths=self.csv_file_path_1, columns_to_drop=["col2"])
         collected_data = list(dataset)
 
         expected_dropped_data = [
@@ -85,7 +85,7 @@ class TestInferenceCSVDataset(unittest.TestCase):
 
     def test_dataloader_multi_worker(self) -> None:
         all_file_paths = [self.csv_file_path_1, self.csv_file_path_2]
-        dataset = utils.InferenceCSVDataset(file_paths=all_file_paths)
+        dataset = utils.InferenceDataset(file_paths=all_file_paths)
 
         dataloader = torch.utils.data.DataLoader(dataset, batch_size=None, num_workers=2)
         collected_data = []
@@ -117,7 +117,7 @@ class TestInferenceCSVDataset(unittest.TestCase):
             self.assertEqual(row_tuple[0].size(), (5, 3))
 
     def test_metadata_columns(self) -> None:
-        dataset = utils.InferenceCSVDataset(
+        dataset = utils.InferenceDataset(
             file_paths=self.csv_file_path_metadata, metadata_columns=["id_col", "extra_info"]
         )
         collected_data = list(dataset)
@@ -146,7 +146,7 @@ class TestInferenceCSVDataset(unittest.TestCase):
                 self.assertEqual(actual_metadata, expected_metadata)
 
     def test_metadata_reverse_columns(self) -> None:
-        dataset = utils.InferenceCSVDataset(
+        dataset = utils.InferenceDataset(
             file_paths=self.csv_file_path_metadata, metadata_columns=["extra_info", "id_col"]
         )
         collected_data = list(dataset)

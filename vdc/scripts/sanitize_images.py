@@ -564,9 +564,16 @@ def main() -> None:
             logger.info(f"Creating {backup_dir} directory...")
             backup_dir.mkdir(parents=True)
 
+    try:
+        max_image_pixels = os.environ.get("MAX_IMAGE_PIXELS", None)
+        if max_image_pixels is not None:
+            Image.MAX_IMAGE_PIXELS = int(max_image_pixels)
+    except ValueError:
+        pass
+
     sanitize_images(args)
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger(__spec__.name)
+    logger = logging.getLogger(getattr(__spec__, "name", __name__))
     main()

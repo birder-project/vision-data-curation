@@ -34,7 +34,7 @@ flowchart LR
     V --> R[Rotation*]
     R --> D[Dedup*]
     D --> E[Example<br/>Filter]
-    E --> Q[Quality Filter<br/>Aesthetic/NSFW/Skip]
+    E --> Q[Quality Filter<br/>Aesthetic/NSFW]
     Q --> S[Cluster-based<br/>Sampling]
     S --> F[Curated<br/>Dataset]
 

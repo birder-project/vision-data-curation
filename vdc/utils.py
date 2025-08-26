@@ -4,11 +4,13 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from typing import Literal
 from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
 import polars as pl
+import pyarrow as pa
 import pyarrow.dataset as ds
 import torch
 import torch.utils.data
@@ -42,83 +44,142 @@ def read_json(json_path: str) -> dict[str, Any]:
     return data
 
 
-def read_embeddings(path: str) -> npt.NDArray[np.float32]:
-    schema = pl.read_csv(path, n_rows=1).schema
-    schema_overrides = {name: (pl.Float32 if dtype == pl.Float64 else dtype) for name, dtype in schema.items()}
-
-    df_lazy = pl.scan_csv(path, schema_overrides=schema_overrides).select(pl.exclude(["sample"]))
-    return df_lazy.collect().to_numpy()
-
-
-def csv_iter(path: str, batch_size: Optional[int] = None, batches_per_yield: int = 100) -> Iterator[pl.DataFrame]:
+def read_vector_file(path: str) -> npt.NDArray[np.float32]:
     """
-    Reads a CSV file in batches and yields concatenated Polars DataFrames
-
-    This generator function provides an efficient way to process large CSV files
-    by reading them in configurable batches, concatenating these batches into
-    single Polars DataFrames, and yielding each consolidated DataFrame.
-    This helps in managing memory when dealing with datasets that do not fit
-    entirely into RAM.
+    Load embeddings or logits from a Parquet or CSV file
 
     Parameters
     ----------
     path
-        The path to the CSV file.
+        Path to the input file. Supported formats are:
+        - Parquet (.parquet): may contain either embeddings or logits.
+        - CSV (.csv): may contain embeddings or logits.
+
+    Returns
+    -------
+    The loaded vectors with shape of (n_samples, n_features).
+
+    Raises
+    ------
+    ValueError
+        If the file format is not supported.
+    """
+
+    if path.endswith(".parquet"):
+        schema = pl.read_parquet_schema(path)
+        if len(schema) == 2 and "embedding" in schema:
+            # Embeddings Parquet
+            return pl.read_parquet(path, columns=["embedding"]).to_series().to_numpy()
+
+        # Logits Parquet
+        return pl.read_parquet(path).select(pl.exclude(["sample"])).to_numpy()
+
+    if path.endswith(".csv"):
+        schema = pl.read_csv(path, n_rows=1).schema
+        schema_overrides = {name: (pl.Float32 if dtype == pl.Float64 else dtype) for name, dtype in schema.items()}
+
+        # Both logits and embeddings file have the same schema as CSV
+        df_lazy = pl.scan_csv(path, schema_overrides=schema_overrides).select(pl.exclude(["sample"]))
+        return df_lazy.collect().to_numpy()
+
+    raise ValueError(f"Unsupported file format for '{path}', only .parquet and .csv files are supported")
+
+
+def get_file_samples(path: str) -> list[str]:
+    if path.endswith(".parquet"):
+        return pl.read_parquet(path, columns=["sample"]).to_series().to_list()
+    if path.endswith(".csv"):
+        return pl.scan_csv(path).select(["sample"]).collect().to_series().to_list()
+
+    raise ValueError(f"Unsupported file format for '{path}', only .parquet and .csv files are supported")
+
+
+def data_file_iter(path: str, batch_size: int = 1024) -> Iterator[pl.DataFrame]:
+    """
+    Reads CSV or Parquet files in batches using PyArrow and yields Polars DataFrames
+
+    This generator function provides an efficient way to process large CSV or Parquet files
+    by leveraging PyArrow's dataset scanning capabilities. It reads data in configurable
+    batches, converts each batch to a Polars DataFrame, and yields it. This approach
+    helps in managing memory when dealing with datasets that do not fit entirely into RAM.
+    It also automatically casts Float64 columns to Float32 for memory optimization.
+
+    Parameters
+    ----------
+    path
+        The path to the CSV or Parquet file.
     batch_size
-        The 'batch_size' argument passed directly to 'polars.read_csv_batched()'.
-        This hints to Polars how large its internal chunks should be.
-        If None, Polars will determine an optimal size.
-        Warning:
-          As of Polars versions prior to the merge of https://github.com/pola-rs/polars/pull/23996
-          (GitHub issue link: https://github.com/pola-rs/polars/issues/19978),
-          this 'batch_size' might not be strictly respected by Polars for the individual internal batches.
-    batches_per_yield
-        The number of internal Polars batches to read and concatenate
-        before yielding a single DataFrame.
+        The maximum number of rows for each batch.
 
     Yields
     ------
-    A concatenated DataFrame containing data from the current set of batches.
+    A Polars DataFrame containing data from the current batch.
 
-    Examples
-    --------
-    >>> total_rows = 0
-    >>> for df_chunk in csv_iter(dummy_csv_path):
-    ...     # Perform operations on df_chunk, e.g., filter, aggregate, write to another file
-    ...     total_rows += len(df_chunk)
-    >>> print(f"Total rows processed: {total_rows}")
+    Raises
+    ------
+    ValueError
+        If the file format (determined by the file extension) is not 'csv' or 'parquet'.
     """
 
-    kwargs = {}
-    if batch_size is not None:
-        kwargs["batch_size"] = batch_size
+    file_format = Path(path).suffix[1:]
+    if file_format not in {"csv", "parquet"}:
+        raise ValueError(f"Unsupported file_format '{file_format}', must be 'csv' or 'parquet'")
 
-    schema = pl.read_csv(path, n_rows=1).schema
-    schema_overrides = {name: (pl.Float32 if dtype == pl.Float64 else dtype) for name, dtype in schema.items()}
+    base_dataset = ds.dataset(source=path, format=file_format)
+    scanner = base_dataset.scanner(batch_size=batch_size)
 
-    reader = pl.read_csv_batched(path, schema_overrides=schema_overrides, **kwargs)  # type: ignore[arg-type]
+    for batch in scanner.to_batches():
+        if batch is None or batch.num_rows == 0:
+            continue
 
-    while True:
-        batches: Optional[list[pl.DataFrame]] = reader.next_batches(batches_per_yield)
-
-        if batches is None or len(batches) == 0:
-            break
-
-        yield pl.concat(batches, how="vertical")
+        yield pl.from_arrow(batch).cast({pl.Float64: pl.Float32})  # type: ignore
 
 
-class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=abstract-method
+def batch_to_tensor(batch: pa.RecordBatch, numeric_columns: list[str]) -> torch.Tensor:
     """
-    PyTorch IterableDataset for loading numeric CSV data for inference
+    Convert a PyArrow RecordBatch with numeric and fixed_size_list columns into a single torch.Tensor
+    """
 
-    This dataset loads CSV files using PyArrow and yields individual rows as PyTorch tensors.
-    All CSV columns are assumed to be numeric and are converted to float32 tensors. The dataset
-    supports multi-worker data loading by distributing file fragments across workers.
+    if batch.num_rows == 0:
+        return np.empty((0, 0))
+
+    arrays_to_stack = []
+    for col_name in numeric_columns:
+        pa_array = batch.column(col_name)
+        if isinstance(pa_array, pa.ChunkedArray):
+            pa_array = pa_array.combine_chunks()
+            np_array = pa_array.to_numpy()
+        elif pa.types.is_fixed_size_list(pa_array.type) is True:
+            np_array = pa_array.values.to_numpy(zero_copy_only=True)
+            np_array = np_array.reshape(-1, pa_array.type.list_size)
+        else:
+            np_array = pa_array.to_numpy()
+
+        if np_array.ndim == 1:
+            arrays_to_stack.append(np_array.reshape(-1, 1))
+        else:
+            arrays_to_stack.append(np_array)
+
+    if len(arrays_to_stack) == 0:
+        return np.empty((batch.num_rows, 0))
+
+    return torch.from_numpy(np.hstack(arrays_to_stack)).to(torch.float32)
+
+
+class InferenceDataset(torch.utils.data.IterableDataset):  # pylint: disable=abstract-method
+    """
+    PyTorch IterableDataset for loading numeric CSV/Parquet data for inference
+
+    This dataset loads files using PyArrow and yields individual rows as PyTorch tensors.
+    All non-metadata columns are assumed to be numeric and converted to float32 tensors.
+    Metadata columns (strings, ids, etc.) are returned alongside the numeric tensor.
+    The dataset supports multi-worker data loading by distributing file fragments across workers.
 
     Notes
     -----
-    - All CSV columns must contain numeric data only
+    - All non-metadata columns must contain numeric data only
     - All numeric types are converted to float32
+    - Supports CSV and Parquet backends via 'file_format'
     - Supports multi-worker data loading with automatic fragment distribution
     - Empty batches are automatically skipped
     """
@@ -126,12 +187,17 @@ class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=
     def __init__(
         self,
         file_paths: str | list[str],
-        pyarrow_batch_size: int = 1024,
+        file_format: Literal["csv", "parquet"] = "csv",
+        pyarrow_batch_size: int = 4096,
         columns_to_drop: Optional[list[str]] = None,
         metadata_columns: Optional[list[str]] = None,
     ) -> None:
         super().__init__()
         self.file_paths = file_paths
+        self.file_format = file_format.lower()
+        if self.file_format not in {"csv", "parquet"}:
+            raise ValueError(f"Unsupported file_format '{file_format}', must be 'csv' or 'parquet'")
+
         self.pyarrow_batch_size = pyarrow_batch_size
         self._columns_to_drop = set(columns_to_drop) if columns_to_drop is not None else set()
         self._metadata_columns = metadata_columns if metadata_columns is not None else []
@@ -142,17 +208,17 @@ class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=
 
     def __iter__(self) -> Iterator[tuple[torch.Tensor, ...]]:
         """
-        Iterate over individual rows from the CSV files as PyTorch tensors
+        Iterate over individual rows from the dataset files as PyTorch tensors
 
         Each yielded item is a tuple where the first element is the numeric row tensor
-        and subsequent elements are the string values for that row, in the order specified
+        and subsequent elements are the metadata values for that row, in the order specified
         by 'metadata_columns'. If no metadata columns are specified, the tuple will contain
         only the numeric row tensor.
 
         Yields
         ------
         A tuple (numeric_row_tensor, metadata_value_1, metadata_value_2, ...)
-        where the numeric tensor has a dtype float32.
+        where the numeric tensor has dtype float32.
 
         Notes
         -----
@@ -162,7 +228,7 @@ class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=
         """
 
         worker_info = torch.utils.data.get_worker_info()
-        base_dataset = ds.dataset(self.file_paths, format="csv")
+        base_dataset = ds.dataset(self.file_paths, format=self.file_format)
 
         if worker_info is None:
             worker_fragments = list(base_dataset.get_fragments())
@@ -170,11 +236,7 @@ class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=
             all_fragments = list(base_dataset.get_fragments())
             num_workers = worker_info.num_workers
             worker_id = worker_info.id
-
-            worker_fragments = []
-            for i, fragment in enumerate(all_fragments):
-                if i % num_workers == worker_id:
-                    worker_fragments.append(fragment)
+            worker_fragments = [f for i, f in enumerate(all_fragments) if i % num_workers == worker_id]
 
         if len(worker_fragments) == 0:
             # Worker has no fragments assigned (e.g., more workers than actual fragments)
@@ -193,9 +255,8 @@ class InferenceCSVDataset(torch.utils.data.IterableDataset):  # pylint: disable=
                 if batch is None or batch.num_rows == 0:
                     continue
 
-                numeric_batch = batch.select(numeric_columns)
-                tensor_batch = torch.from_numpy(numeric_batch.to_tensor().to_numpy()).to(torch.float32)
-
+                # numeric_batch = batch.select(numeric_columns)
+                tensor_batch = batch_to_tensor(batch, numeric_columns)
                 metadata_values_per_column: dict[str, list[str]] = {}
                 for col_name in self._metadata_columns:
                     metadata_values_per_column[col_name] = batch.column(col_name).to_pylist()

@@ -36,21 +36,25 @@ def filter_by_examples(args: argparse.Namespace) -> None:
     logger.info(f"Report will be saved to: {args.output_csv}")
     logger.info(f"Using device: {device}")
 
-    examples = torch.tensor(utils.read_embeddings(args.examples_embeddings_file), device=device)
+    examples = torch.tensor(utils.read_vector_file(args.examples_embeddings_file), device=device)
 
     # Write CSV header
     with open(args.output_csv, "w", encoding="utf-8") as handle:
         handle.write("sample,distance\n")
 
+    chunk_size = args.chunk_size or 4096
     total_samples = 0
     tic = time.time()
     with tqdm(desc="Processing embeddings", leave=False, unit="samples") as progress_bar:
-        for df in utils.csv_iter(args.embeddings_path, batches_per_yield=100):
+        for df in utils.data_file_iter(args.embeddings_path, batch_size=chunk_size):
             sample_names = df.select("sample").to_series()
-            x = torch.tensor(df.select(pl.exclude(["sample"])).to_numpy(), device=device)
-            all_distances = compute_distance(
-                x, examples, distance_metric=args.distance_metric, chunk_size=args.chunk_size
-            )
+            df = df.select(pl.exclude(["sample"]))
+            if len(df.columns) == 1:
+                x = torch.tensor(df.to_series().to_numpy(), device=device)
+            else:
+                x = torch.tensor(df.to_numpy(), device=device)
+
+            all_distances = compute_distance(x, examples, distance_metric=args.distance_metric)
             min_distances = torch.min(all_distances, dim=1).values.cpu().numpy()
 
             if args.report_threshold is not None:
@@ -88,7 +92,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
             "python -m vdc.scripts.filter_by_examples --device cuda --report-threshold 0.3 --examples-embeddings-file "
             "data/bad_examples_embeddings.csv data/dataset_embeddings.csv\n"
             "python -m vdc.scripts.filter_by_examples --distance-metric l2 --examples-embeddings-file data/samples.csv "
-            "data/dataset_embeddings.csv\n"
+            "data/dataset_embeddings.parquet\n"
         ),
         formatter_class=cli.ArgumentHelpFormatter,
     )
@@ -170,5 +174,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger(__spec__.name)
+    logger = logging.getLogger(getattr(__spec__, "name", __name__))
     main()

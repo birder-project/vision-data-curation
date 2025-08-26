@@ -2,7 +2,9 @@ import argparse
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
+from typing import Literal
 
 import polars as pl
 import torch
@@ -54,8 +56,9 @@ def run_filter(args: argparse.Namespace, filter_config: dict[str, Any]) -> None:
     model.eval()
 
     # Data
-    dataset = utils.InferenceCSVDataset(
-        args.embeddings_path, columns_to_drop=["prediction"], metadata_columns=["sample"]
+    file_format: Literal["csv", "parquet"] = Path(args.embeddings_path).suffix[1:]  # type: ignore[assignment]
+    dataset = utils.InferenceDataset(
+        args.embeddings_path, file_format, columns_to_drop=["prediction"], metadata_columns=["sample"]
     )
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.inference_batch_size, num_workers=1)
 

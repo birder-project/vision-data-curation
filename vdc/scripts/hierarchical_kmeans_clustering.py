@@ -95,8 +95,8 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
     logger.info(f"Assignments will be saved to: {args.output_assignments_csv}")
     logger.info(f"Using device: {device}")
 
-    embeddings = torch.tensor(utils.read_embeddings(args.embeddings_path))
-    sample_names = pl.scan_csv(args.embeddings_path).select(["sample"]).collect().to_series().to_list()
+    embeddings = torch.tensor(utils.read_vector_file(args.embeddings_path))
+    sample_names = utils.get_file_samples(args.embeddings_path)
 
     tic = time.time()
     hierarchical_clusters = pt_kmeans.hierarchical_kmeans(
@@ -146,7 +146,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
             "python -m vdc.scripts.hierarchical_kmeans_clustering --n-clusters 1000 50 --max-iters 20 "
             "--device cpu results/vit_l14_pn_bioclip-v2_1024_224px_crop1.0_167015_embeddings.csv\n"
             "python -m vdc.scripts.hierarchical_kmeans_clustering --n-clusters 1000 50 10 --method resampled "
-            "--n-samples 50 4 0 data/sample_embeddings.csv\n"
+            "--n-samples 50 4 0 data/sample_embeddings.parquet\n"
         ),
         formatter_class=cli.ArgumentHelpFormatter,
     )
@@ -270,5 +270,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    logger = logging.getLogger(__spec__.name)
+    logger = logging.getLogger(getattr(__spec__, "name", __name__))
     main()
