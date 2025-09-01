@@ -55,10 +55,6 @@ class TestClusterInfo(unittest.TestCase):
         self.assertEqual(cluster_info.get_cluster_size(2, 301), 4)
 
     def test_child_clusters(self) -> None:
-        """
-        Verify _child_clusters structure and content
-        """
-
         cluster_info = ClusterInfo(self.assignments_df)
 
         # level_2 cluster 301 has children at level_1: 201, 202

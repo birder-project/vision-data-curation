@@ -2,7 +2,6 @@ import argparse
 import csv
 import logging
 import os
-import shutil
 import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
@@ -23,48 +22,8 @@ from vdc.conf import settings
 logger = logging.getLogger(__name__)
 
 
-def _perform_deletion_with_backup(file_path_str: str, backup_dir: Optional[str]) -> str:
-    original_path = Path(file_path_str)
-
-    if original_path.exists() is False:
-        logger.debug(f"File not found: {original_path}")
-        return "file_not_found"
-
-    backup_successful = False
-    if backup_dir is not None:
-        backup_path = utils.build_backup_path(original_path, backup_dir)
-        backup_path.parent.mkdir(parents=True, exist_ok=True)
-        if backup_path.exists() is True:
-            logger.error(f"Backup file already exists: {backup_path}. Skipping deletion of {original_path}.")
-            return "skipped_backup_exists"
-        try:
-            shutil.copy2(original_path, backup_path)
-            logger.debug(f"Backed up {original_path} to {backup_path}")
-            backup_successful = True
-        except OSError as e:
-            logger.error(
-                f"Failed to backup {original_path} to {backup_path} (Error: {type(e).__name__} - {e}). "
-                "Deletion will NOT proceed for this file to prevent data loss."
-            )
-            return "backup_failed_error"
-
-    try:
-        original_path.unlink()
-        logger.debug(f"DELETED: {file_path_str} (backup created: {backup_successful})")
-        return "deleted"
-    except OSError as e:
-        logger.error(f"Error deleting {file_path_str} (Error: {type(e).__name__} - {e}). Check backup if available.")
-        return "error"
-    except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.error(
-            f"An unexpected error occurred during deletion of {file_path_str} (Error: {type(e).__name__} - {e}). "
-            "Original file state is now potentially corrupted or partially modified. Check backup if available."
-        )
-        return "error"
-
-
 def _delete_image(file_path: str, score: float, backup_dir: Optional[str]) -> dict[str, Any]:
-    status = _perform_deletion_with_backup(file_path, backup_dir)
+    status = utils.perform_file_deletion_with_backup(file_path, backup_dir)
     return {
         "file_path": file_path,
         "score": score,
@@ -171,7 +130,7 @@ def apply_score_filter(args: argparse.Namespace) -> None:
         else:
             logger.warning("WARNING: No backup directory specified, deleted files will be unrecoverable")
     else:
-        logger.info("Running in DRY-RUN mode. No files will be modified or deleted.")
+        logger.info("Running in DRY-RUN mode. No files will be modified or deleted")
 
     logger.info(f"Output report will be saved to: {args.output_csv}")
     logger.info(f"Using {args.num_workers} worker processes")
@@ -180,7 +139,7 @@ def apply_score_filter(args: argparse.Namespace) -> None:
     _display_statistics(report_df, args.score_column, args.threshold)
 
     if args.apply_deletion is False:
-        logger.info("Dry-run complete. No files were modified or deleted.")
+        logger.info("Dry-run complete, no files were modified or deleted")
         return
 
     tic = time.time()

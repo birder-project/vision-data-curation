@@ -19,11 +19,11 @@ VDC provides modular tools for dataset cleanup:
 - **Input validation** - detect corrupt files, invalid formats, low resolution, or extreme aspect ratios
 - **Example-based filtering** - remove images similar to a set of unwanted examples
 - **Image Quality Filtering** - remove images based on aesthetic score or NSFW classification
+- **Duplicate removal** - identify and remove near-duplicate images from your dataset
 - **Hierarchical K-Means sampling** - select diverse, representative subsets from large datasets
 
 **Coming soon:**
 
-- Duplicate removal
 - Rotation correction (correct 90°/180°/270° orientation errors)
 
 ## The Curation Pipeline
@@ -32,7 +32,7 @@ VDC provides modular tools for dataset cleanup:
 flowchart LR
     A[Raw<br/>Dataset] --> V[Validation]
     V --> R[Rotation*]
-    R --> D[Dedup*]
+    R --> D[Dedup]
     D --> E[Example<br/>Filter]
     E --> Q[Quality Filter<br/>Aesthetic/NSFW]
     Q --> S[Cluster-based<br/>Sampling]

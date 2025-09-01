@@ -96,7 +96,7 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
     logger.info(f"Using device: {device}")
 
     embeddings = torch.tensor(utils.read_vector_file(args.embeddings_path))
-    sample_names = utils.get_file_samples(args.embeddings_path)
+    sample_names = utils.get_file_samples(args.embeddings_path).to_list()
 
     tic = time.time()
     hierarchical_clusters = pt_kmeans.hierarchical_kmeans(
@@ -198,9 +198,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         metavar="N",
         help="number of resampling steps to perform for each level when --method=resampled",
     )
-    clustering_group.add_argument(
-        "--random-seed", type=int, default=None, metavar="SEED", help="random seed for reproducibility"
-    )
+    clustering_group.add_argument("--random-seed", type=int, metavar="SEED", help="random seed for reproducibility")
 
     # Core arguments
     parser.add_argument(  # Does nothing, just so it will show up at the usage message

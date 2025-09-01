@@ -3,12 +3,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+import polars as pl
 import torch
 
 from vdc import utils
 
 
-class TestInferenceDataset(unittest.TestCase):
+class TestInferenceDatasetCSV(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.mkdtemp()
         self.csv_file_path_1 = os.path.join(self.temp_dir, "test_data1.csv")
@@ -173,6 +175,151 @@ class TestInferenceDataset(unittest.TestCase):
 
                 # Check the metadata strings
                 self.assertEqual(actual_metadata, expected_metadata)
+
+
+class TestInferenceDatasetParquet(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.mkdtemp()
+
+        # Embeddings Parquet (fixed size)
+        self.parquet_embeddings_path = os.path.join(self.temp_dir, "embeddings.parquet")
+        df_embeddings = pl.DataFrame(
+            {
+                "sample": ["id1", "id2", "id3"],
+                "embedding": [
+                    np.array([0.1, 0.2, 0.3]),
+                    np.array([0.4, 0.5, 0.6]),
+                    np.array([0.7, 0.8, 0.9]),
+                ],
+            }
+        )
+        df_embeddings.write_parquet(self.parquet_embeddings_path)
+
+        # Embeddings Parquet
+        self.parquet_embeddings_list_path = os.path.join(self.temp_dir, "embeddings_list.parquet")
+        df_embeddings = pl.DataFrame(
+            {
+                "sample": ["id1", "id2", "id3"],
+                "embedding": [
+                    [0.1, 0.2, 0.3],
+                    [0.4, 0.5, 0.6],
+                    [0.7, 0.8, 0.9],
+                ],
+            }
+        )
+        df_embeddings.write_parquet(self.parquet_embeddings_list_path)
+
+        # Logits Parquet
+        self.parquet_logits_path = os.path.join(self.temp_dir, "logits.parquet")
+        df_logits = pl.DataFrame(
+            {
+                "sample": ["a", "b", "c"],
+                "class1": np.array([1.0, 2.0, 3.0]),
+                "class2": np.array([4.0, 5.0, 6.0]),
+            }
+        )
+        df_logits.write_parquet(self.parquet_logits_path)
+
+    def tearDown(self) -> None:
+        os.remove(self.parquet_embeddings_path)
+        os.remove(self.parquet_embeddings_list_path)
+        os.remove(self.parquet_logits_path)
+        os.rmdir(self.temp_dir)
+
+    def test_embeddings_parquet_iteration(self) -> None:
+        dataset = utils.InferenceDataset(
+            file_paths=self.parquet_embeddings_path, file_format="parquet", columns_to_drop=["sample"]
+        )
+        collected = list(dataset)
+
+        expected = [
+            (torch.tensor([0.1, 0.2, 0.3], dtype=torch.float32),),
+            (torch.tensor([0.4, 0.5, 0.6], dtype=torch.float32),),
+            (torch.tensor([0.7, 0.8, 0.9], dtype=torch.float32),),
+        ]
+
+        self.assertEqual(len(collected), len(expected))
+        for (actual_tensor,), (expected_tensor,) in zip(collected, expected):
+            torch.testing.assert_close(actual_tensor, expected_tensor)
+            self.assertEqual(actual_tensor.dtype, torch.float32)
+
+    def test_embeddings_list_parquet_iteration(self) -> None:
+        dataset = utils.InferenceDataset(
+            file_paths=self.parquet_embeddings_list_path, file_format="parquet", columns_to_drop=["sample"]
+        )
+        collected = list(dataset)
+
+        expected = [
+            (torch.tensor([0.1, 0.2, 0.3], dtype=torch.float32),),
+            (torch.tensor([0.4, 0.5, 0.6], dtype=torch.float32),),
+            (torch.tensor([0.7, 0.8, 0.9], dtype=torch.float32),),
+        ]
+
+        self.assertEqual(len(collected), len(expected))
+        for (actual_tensor,), (expected_tensor,) in zip(collected, expected):
+            torch.testing.assert_close(actual_tensor, expected_tensor)
+            self.assertEqual(actual_tensor.dtype, torch.float32)
+
+    def test_logits_parquet_iteration(self) -> None:
+        dataset = utils.InferenceDataset(
+            file_paths=self.parquet_logits_path,
+            file_format="parquet",
+            metadata_columns=["sample"],
+        )
+        collected = list(dataset)
+
+        expected = [
+            (torch.tensor([1.0, 4.0], dtype=torch.float32), "a"),
+            (torch.tensor([2.0, 5.0], dtype=torch.float32), "b"),
+            (torch.tensor([3.0, 6.0], dtype=torch.float32), "c"),
+        ]
+
+        self.assertEqual(len(collected), len(expected))
+        for (actual_tensor, actual_sample), (expected_tensor, expected_sample) in zip(collected, expected):
+            torch.testing.assert_close(actual_tensor, expected_tensor)
+            self.assertEqual(actual_sample, expected_sample)
+
+
+class TestDataFileIter(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.mkdtemp()
+
+        # Embeddings Parquet
+        self.embeddings_path = os.path.join(self.temp_dir, "embeddings.parquet")
+        pl.DataFrame({"embedding": [[0.11, 0.12], [0.21, 0.22], [0.31, 0.32]]}).write_parquet(self.embeddings_path)
+
+        # Logits Parquet
+        self.logits_path = os.path.join(self.temp_dir, "logits.parquet")
+        pl.DataFrame(
+            {
+                "sample": ["x", "y"],
+                "logit1": [0.5, 1.5],
+                "logit2": [1.0, 2.0],
+            }
+        ).write_parquet(self.logits_path)
+
+    def tearDown(self) -> None:
+        os.remove(self.embeddings_path)
+        os.remove(self.logits_path)
+        os.rmdir(self.temp_dir)
+
+    def test_embeddings_iter(self) -> None:
+        batches = list(utils.data_file_iter(self.embeddings_path, batch_size=2))
+        self.assertTrue(all(isinstance(b, pl.DataFrame) for b in batches))
+
+        concatenated = pl.concat(batches)
+        expected = pl.DataFrame({"embedding": [[0.11, 0.12], [0.21, 0.22], [0.31, 0.32]]})
+        self.assertEqual(concatenated.shape, expected.shape)
+        self.assertEqual(concatenated.to_dict(as_series=False), expected.to_dict(as_series=False))
+
+    def test_logits_iter(self) -> None:
+        batches = list(utils.data_file_iter(self.logits_path, batch_size=1))
+        self.assertTrue(all(isinstance(b, pl.DataFrame) for b in batches))
+
+        concatenated = pl.concat(batches)
+        expected = pl.DataFrame({"sample": ["x", "y"], "logit1": [0.5, 1.5], "logit2": [1.0, 2.0]})
+        self.assertEqual(concatenated.shape, expected.shape)
+        self.assertEqual(concatenated.to_dict(as_series=False), expected.to_dict(as_series=False))
 
 
 class TestCreateSafeBackupPath(unittest.TestCase):

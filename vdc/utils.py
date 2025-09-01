@@ -1,6 +1,8 @@
 import importlib.resources
 import json
+import logging
 import os
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -15,8 +17,15 @@ import pyarrow.dataset as ds
 import torch
 import torch.utils.data
 
+logger = logging.getLogger(__name__)
+
 
 def load_default_bundled_config() -> Optional[dict[str, Any]]:
+    # Configuration loading order:
+    # 1. Local override in the current working directory.
+    # 2. Bundled configuration file in a cloned repository.
+    # 3. Bundled configuration file within the installed Python package (vdc.conf).
+
     for file_path in ["config.json", "vdc/conf/config.json"]:
         if os.path.exists(file_path) is True:
             return read_json(file_path)
@@ -31,7 +40,7 @@ def load_default_bundled_config() -> Optional[dict[str, Any]]:
             return config
 
     except ModuleNotFoundError:
-        # Module not found, try at alternate locations
+        # Module not found
         pass
 
     return None
@@ -63,6 +72,12 @@ def read_vector_file(path: str) -> npt.NDArray[np.float32]:
     ------
     ValueError
         If the file format is not supported.
+
+    Notes
+    -----
+    This function expects data files to conform to the "Birder format".
+    A detailed specification:
+    https://gitlab.com/birder/birder/-/blob/main/docs/inference.md#classification---output-files
     """
 
     if path.endswith(".parquet"):
@@ -85,11 +100,11 @@ def read_vector_file(path: str) -> npt.NDArray[np.float32]:
     raise ValueError(f"Unsupported file format for '{path}', only .parquet and .csv files are supported")
 
 
-def get_file_samples(path: str) -> list[str]:
+def get_file_samples(path: str) -> pl.Series:
     if path.endswith(".parquet"):
-        return pl.read_parquet(path, columns=["sample"]).to_series().to_list()
+        return pl.read_parquet(path, columns=["sample"]).to_series()
     if path.endswith(".csv"):
-        return pl.scan_csv(path).select(["sample"]).collect().to_series().to_list()
+        return pl.scan_csv(path).select(["sample"]).collect().to_series()
 
     raise ValueError(f"Unsupported file format for '{path}', only .parquet and .csv files are supported")
 
@@ -125,14 +140,24 @@ def data_file_iter(path: str, batch_size: int = 1024) -> Iterator[pl.DataFrame]:
     if file_format not in {"csv", "parquet"}:
         raise ValueError(f"Unsupported file_format '{file_format}', must be 'csv' or 'parquet'")
 
-    base_dataset = ds.dataset(source=path, format=file_format)
-    scanner = base_dataset.scanner(batch_size=batch_size)
+    if file_format == "csv":
+        # The PyArrow "scanner" is very slow, use Polars
+        reader = pl.read_csv_batched(path, batch_size=batch_size)
+        batches = reader.next_batches(100)
+        while batches is not None:
+            df_current_batches = pl.concat(batches)
+            yield df_current_batches.cast({pl.Float64: pl.Float32})
+            batches = reader.next_batches(100)
 
-    for batch in scanner.to_batches():
-        if batch is None or batch.num_rows == 0:
-            continue
+    else:
+        base_dataset = ds.dataset(source=path, format=file_format)
+        scanner = base_dataset.scanner(batch_size=batch_size)
 
-        yield pl.from_arrow(batch).cast({pl.Float64: pl.Float32})  # type: ignore
+        for batch in scanner.to_batches():
+            if batch is None or batch.num_rows == 0:
+                continue
+
+            yield pl.from_arrow(batch).cast({pl.Float64: pl.Float32})  # type: ignore
 
 
 def batch_to_tensor(batch: pa.RecordBatch, numeric_columns: list[str]) -> torch.Tensor:
@@ -141,7 +166,7 @@ def batch_to_tensor(batch: pa.RecordBatch, numeric_columns: list[str]) -> torch.
     """
 
     if batch.num_rows == 0:
-        return np.empty((0, 0))
+        return torch.empty((0, 0), dtype=torch.float32)
 
     arrays_to_stack = []
     for col_name in numeric_columns:
@@ -152,6 +177,8 @@ def batch_to_tensor(batch: pa.RecordBatch, numeric_columns: list[str]) -> torch.
         elif pa.types.is_fixed_size_list(pa_array.type) is True:
             np_array = pa_array.values.to_numpy(zero_copy_only=True)
             np_array = np_array.reshape(-1, pa_array.type.list_size)
+        elif pa.types.is_list(pa_array.type) is True or pa.types.is_large_list(pa_array.type) is True:
+            np_array = np.array(pa_array.to_pylist(), dtype=np.float32)
         else:
             np_array = pa_array.to_numpy()
 
@@ -161,7 +188,7 @@ def batch_to_tensor(batch: pa.RecordBatch, numeric_columns: list[str]) -> torch.
             arrays_to_stack.append(np_array)
 
     if len(arrays_to_stack) == 0:
-        return np.empty((batch.num_rows, 0))
+        return torch.empty((batch.num_rows, 0), dtype=torch.float32)
 
     return torch.from_numpy(np.hstack(arrays_to_stack)).to(torch.float32)
 
@@ -323,3 +350,64 @@ def build_backup_path(source: Path | str, backup_root: Path | str) -> Path:
         raise ValueError(f"Invalid source path: {source}")
 
     return backup_root / Path(*sanitized_parts)
+
+
+def perform_file_deletion_with_backup(file_path_str: str, backup_dir: Optional[str]) -> str:
+    """
+    Performs file deletion with an optional backup
+
+    Parameters
+    ----------
+    file_path_str
+        The path to the file to be potentially deleted.
+    backup_dir
+        An optional path to a directory where the file should be backed up
+        before deletion. If None, no backup is performed.
+
+    Returns
+    -------
+    A string indicating the remediation status:
+    - "deleted": File was successfully backed up (if specified) and deleted.
+    - "file_not_found": The original file did not exist.
+    - "skipped_backup_exists": Backup was skipped because the target backup file already existed.
+    - "backup_failed_error": An error occurred during backup, so deletion was prevented.
+    - "error": An error occurred during deletion.
+    """
+
+    original_path = Path(file_path_str)
+
+    if original_path.exists() is False:
+        logger.debug(f"File not found: {original_path}")
+        return "file_not_found"
+
+    backup_successful = False
+    if backup_dir is not None:
+        backup_path = build_backup_path(original_path, backup_dir)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        if backup_path.exists() is True:
+            logger.error(f"Backup file already exists: {backup_path}. Skipping deletion of {original_path}.")
+            return "skipped_backup_exists"
+        try:
+            shutil.copy2(original_path, backup_path)
+            logger.debug(f"Backed up {original_path} to {backup_path}")
+            backup_successful = True
+        except OSError as e:
+            logger.error(
+                f"Failed to backup {original_path} to {backup_path} (Error: {type(e).__name__} - {e}). "
+                "Deletion will NOT proceed for this file to prevent data loss."
+            )
+            return "backup_failed_error"
+
+    try:
+        original_path.unlink()
+        logger.debug(f"DELETED: {file_path_str} (backup created: {backup_successful})")
+        return "deleted"
+    except OSError as e:
+        logger.error(f"Error deleting {file_path_str} (Error: {type(e).__name__} - {e}). Check backup if available.")
+        return "error"
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error(
+            f"An unexpected error occurred during deletion of {file_path_str} (Error: {type(e).__name__} - {e}). "
+            "Original file state is now potentially corrupted or partially modified. Check backup if available."
+        )
+        return "error"
