@@ -70,7 +70,7 @@ class LSHIndex:
         self.dtype = dtype
         self.device = torch.device(device) if device is not None else torch.device("cpu")
 
-        self._g = torch.Generator(device="cpu")
+        self._g = torch.Generator(device=device)
         if random_seed is not None:
             self._g.manual_seed(random_seed)
 
@@ -316,6 +316,35 @@ class LSHIndex:
 
         return len(self._hash_tables[table_idx])
 
+    def to_device(self, device: torch.device | str) -> "LSHIndex":
+        """
+        Moves all internal tensors (center embedding, hyperplanes, etc.) to the specified device
+
+        Parameters
+        ----------
+        device
+            Target torch.device.
+
+        Returns
+        -------
+        The index, with all tensors moved.
+        """
+
+        device = torch.device(device)
+        self.device = device
+
+        if self.center_embedding is not None:
+            self.center_embedding = self.center_embedding.to(device=device)
+
+        self._hyperplanes = [h.to(device=device) for h in self._hyperplanes]
+
+        # Recreate generator on the new device
+        old_state = self._g.get_state()
+        self._g = torch.Generator(device=device)
+        self._g.set_state(old_state)
+
+        return self
+
     def __len__(self) -> int:
         return len(self._indexed_ids)
 
@@ -331,7 +360,7 @@ class LSHIndex:
         g_state = state.pop("_g_state")
         self.__dict__.update(state)
 
-        self._g = torch.Generator(device="cpu")
+        self._g = torch.Generator(device=self.device)
         self._g.set_state(g_state)
 
     def save(self, file_path: str) -> None:
@@ -348,7 +377,7 @@ class LSHIndex:
             pickle.dump(self, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     @staticmethod
-    def load(file_path: str) -> "LSHIndex":
+    def load(file_path: str, device: torch.device | str) -> "LSHIndex":
         """
         Loads an LSHIndex instance from a file
 
@@ -356,6 +385,9 @@ class LSHIndex:
         ----------
         file_path
             The path to the file from which the index will be loaded.
+        device
+            The device to which all internal tensors and state will be moved
+            after loading (e.g., "cpu", "cuda", torch.device("cuda:0")).
 
         Returns
         -------
@@ -370,4 +402,4 @@ class LSHIndex:
         with open(file_path, "rb") as handle:
             loaded_index: LSHIndex = pickle.load(handle)
 
-        return loaded_index
+        return loaded_index.to_device(device)

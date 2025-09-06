@@ -4,7 +4,6 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
 from typing import Optional
 
 import polars as pl
@@ -66,11 +65,6 @@ def find_duplicate_pairs(
             reported_pairs_with_distances[pair] = distance
 
 
-def write_duplicate_pairs(csv_writer: Any, pairs: list[tuple[str, str, float]]) -> None:
-    for sample_id_1, sample_id_2, distance in pairs:
-        csv_writer.writerow([sample_id_1, sample_id_2, distance])
-
-
 # pylint: disable=too-many-locals
 def deduplicate_images(args: argparse.Namespace) -> None:
     if os.path.exists(args.output_csv) is True and args.force is False:
@@ -103,7 +97,7 @@ def deduplicate_images(args: argparse.Namespace) -> None:
 
     reported_pairs_with_distances: dict[frozenset[str], float] = {}
     if args.lsh_index is not None:
-        lsh_index = LSHIndex.load(args.lsh_index)
+        lsh_index = LSHIndex.load(args.lsh_index, device=device)
         logger.info("Starting LSH-based deduplication...")
 
         num_groups = lsh_index.num_buckets()

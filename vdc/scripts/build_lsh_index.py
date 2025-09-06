@@ -7,7 +7,6 @@ from typing import Optional
 
 import numpy as np
 import numpy.typing as npt
-import polars as pl
 import torch
 from birder.common import cli
 from birder.common.lib import format_duration
@@ -25,13 +24,13 @@ def _compute_global_mean(embeddings_path: str, chunk_size: int) -> npt.NDArray[n
     with tqdm(desc="Global mean calculation", leave=False, unit="samples") as progress_bar:
         data_iterator = utils.data_file_iter(embeddings_path, batch_size=chunk_size)
         first_batch = next(data_iterator)
-        batch = first_batch.select(pl.exclude(["sample"])).to_numpy()
+        batch = utils.df_to_numpy(first_batch)
         mean_embedding: npt.NDArray[np.float64] = batch.mean(axis=0, dtype=np.float64)
         total_count = batch.shape[0]
         progress_bar.update(total_count)
 
         for df_batch in data_iterator:
-            batch = df_batch.select(pl.exclude(["sample"])).to_numpy()
+            batch = utils.df_to_numpy(df_batch)
             batch_size = batch.shape[0]
             total_count_new = total_count + batch_size
             mean_embedding = (mean_embedding * total_count + batch.sum(axis=0)) / total_count_new
@@ -74,7 +73,7 @@ def build_lsh_index(args: argparse.Namespace) -> None:
     logger.info("Populating LSH index...")
     data_iterator = utils.data_file_iter(args.embeddings_path, batch_size=1)
     first_df_for_dim = next(data_iterator)
-    first_embedding_np_for_dim = first_df_for_dim.select(pl.exclude(["sample"])).to_numpy()
+    first_embedding_np_for_dim = utils.df_to_numpy(first_df_for_dim)
     embedding_dim = first_embedding_np_for_dim.shape[1]
 
     lsh_index = LSHIndex(
@@ -91,7 +90,7 @@ def build_lsh_index(args: argparse.Namespace) -> None:
     with tqdm(desc="Building LSH index", leave=False, unit="samples") as progress_bar:
         for df_batch in utils.data_file_iter(args.embeddings_path, batch_size=args.chunk_size):
             sample_ids = df_batch.select("sample").to_series().to_list()
-            embeddings_batch = torch.from_numpy(df_batch.select(pl.exclude(["sample"])).to_numpy())
+            embeddings_batch = utils.df_to_numpy(df_batch)
 
             lsh_index.add_embeddings(sample_ids, embeddings_batch)
 

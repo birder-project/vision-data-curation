@@ -53,6 +53,15 @@ def read_json(json_path: str) -> dict[str, Any]:
     return data
 
 
+def df_to_numpy(df: pl.DataFrame) -> npt.NDArray[np.float32]:
+    if len(df.columns) == 2:
+        arr = df.select(pl.exclude(["sample"])).to_series().to_numpy()
+    else:
+        arr = df.select(pl.exclude(["sample"])).to_numpy()
+
+    return arr
+
+
 def read_vector_file(path: str) -> npt.NDArray[np.float32]:
     """
     Load embeddings or logits from a Parquet or CSV file

@@ -30,6 +30,7 @@ LOGGING: dict[str, Any] = {
     },
     "loggers": {
         "vdc": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
+        "pt_kmeans": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
     },
 }
 

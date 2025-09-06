@@ -44,16 +44,12 @@ def filter_by_examples(args: argparse.Namespace) -> None:
 
     chunk_size = args.chunk_size or 4096
     total_samples = 0
+    write_count = 0
     tic = time.time()
     with tqdm(desc="Processing embeddings", leave=False, unit="samples") as progress_bar:
         for df in utils.data_file_iter(args.embeddings_path, batch_size=chunk_size):
             sample_names = df.select("sample").to_series()
-            df = df.select(pl.exclude(["sample"]))
-            if len(df.columns) == 1:
-                x = torch.tensor(df.to_series().to_numpy(), device=device)
-            else:
-                x = torch.tensor(df.to_numpy(), device=device)
-
+            x = torch.tensor(utils.df_to_numpy(df))
             all_distances = compute_distance(x, examples, distance_metric=args.distance_metric)
             min_distances = torch.min(all_distances, dim=1).values.cpu().numpy()
 
@@ -61,6 +57,7 @@ def filter_by_examples(args: argparse.Namespace) -> None:
                 mask = min_distances < args.report_threshold
                 sample_names = sample_names.filter(mask)
                 min_distances = min_distances[mask]
+                write_count += len(sample_names)
 
             batch_results = pl.DataFrame({"sample": sample_names, "distance": min_distances})
             with open(args.output_csv, "a", encoding="utf-8") as handle:
@@ -72,6 +69,7 @@ def filter_by_examples(args: argparse.Namespace) -> None:
     toc = time.time()
     rate = total_samples / (toc - tic)
     logger.info(f"{format_duration(toc - tic)} to process {total_samples:,} samples ({rate:.2f} samples/sec)")
+    logger.info(f"Written {write_count:,} samples to the report")
     logger.info(f"Report saved to: {args.output_csv}")
 
 

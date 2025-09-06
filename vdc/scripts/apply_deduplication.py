@@ -123,7 +123,7 @@ def apply_deduplication(args: argparse.Namespace) -> None:
         deleted_count = sum(1 for action in files_to_process.values() if action == "delete")
         kept_count = sum(1 for action in files_to_process.values() if action == "keep")
         logger.info("Dry-run complete, no files were modified or deleted")
-        logger.info(f"Would keep {kept_count:,} files and delete {deleted_count:,} files.")
+        logger.info(f"Would keep {kept_count:,} files and delete {deleted_count:,} files")
         return
 
     total_files_deleted = 0

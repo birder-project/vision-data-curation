@@ -56,5 +56,8 @@
   "hierarchical_sampling": {
     "sampling_strategy": "random",
     "allocation_strategy": "water-filling"
+  },
+  "prune_missing_samples": {
+    "chunk_size": 20000
   }
 }

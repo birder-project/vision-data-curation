@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import polars as pl
 import pt_kmeans
 import torch
@@ -82,9 +83,19 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
 
     device = torch.device(device)
 
-    logger.info(f"Loading dataset embeddings from: {args.embeddings_path}")
+    # Search for npy version of the data
+    npy_path = Path(args.embeddings_path).with_suffix(".npy")
+    if npy_path.exists() is True:
+        embeddings_path = str(npy_path)
+    else:
+        embeddings_path = args.embeddings_path
+
+    logger.info(f"Loading dataset embeddings from: {embeddings_path}")
     logger.info(f"Number of clusters per level: {args.n_clusters}")
     logger.info(f"Distance metric: {args.distance_metric}")
+    if args.distance_metric == "cosine" and args.x_pre_normalized:
+        logger.info("Input embeddings are assumed to be L2-normalized for cosine distance")
+
     logger.info(f"Initialization method: {args.init_method}")
     logger.info(f"Hierarchical method: {args.method}")
     if args.method == "resampled":
@@ -93,9 +104,21 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
 
     logger.info(f"Centers will be saved to: {args.output_centers_csv}")
     logger.info(f"Assignments will be saved to: {args.output_assignments_csv}")
+    logger.info(f"Cache directory: {args.cache_dir}")
     logger.info(f"Using device: {device}")
 
-    embeddings = torch.tensor(utils.read_vector_file(args.embeddings_path))
+    if embeddings_path.endswith(".npy") is True:
+        embeddings = torch.from_numpy(np.load(embeddings_path, mmap_mode="r+"))
+    else:
+        embeddings = torch.tensor(utils.read_vector_file(args.embeddings_path))
+
+    if args.fast_matmul is True:
+        torch.set_float32_matmul_precision("high")
+    if args.compile is True:
+        pt_kmeans.hierarchical_kmeans = torch.compile(pt_kmeans.hierarchical_kmeans)
+    if args.preload_to_device is True:
+        embeddings = embeddings.to(device)
+
     sample_names = utils.get_file_samples(args.embeddings_path).to_list()
 
     tic = time.time()
@@ -106,13 +129,16 @@ def hierarchical_kmeans_clustering(args: argparse.Namespace) -> None:
         args.tol,
         args.distance_metric,
         args.init_method,
-        args.chunk_size,
+        n_local_trials=args.n_local_trials,
+        chunk_size=args.chunk_size,
         show_progress=True,
         random_seed=args.random_seed,
         device=device,
         method=args.method,
         n_samples=args.n_samples,
         n_resamples=args.n_resamples,
+        x_pre_normalized=args.x_pre_normalized,
+        cache_dir=args.cache_dir,
     )
     _save_hierarchical_clusters_to_csv(hierarchical_clusters, args.output_centers_csv)
     logger.info(f"Centers saved to: {args.output_centers_csv}")
@@ -174,6 +200,9 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         "--init-method", choices=["random", "kmeans++"], metavar="METHOD", help="centers initialization method"
     )
     clustering_group.add_argument(
+        "--n-local-trials", type=int, metavar="N", help="number of local trials for kmeans++ initialization"
+    )
+    clustering_group.add_argument(
         "--chunk-size",
         type=int,
         metavar="N",
@@ -198,6 +227,20 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         metavar="N",
         help="number of resampling steps to perform for each level when --method=resampled",
     )
+    clustering_group.add_argument(
+        "--x-pre-normalized",
+        action="store_true",
+        help="if set and using 'cosine' distance, assumes input embeddings are already L2-normalized",
+    )
+    clustering_group.add_argument(
+        "--cache-dir",
+        type=str,
+        metavar="DIR",
+        help=(
+            "directory for caching intermediate K-Means results, enables automatic recovery from interruptions, "
+            "simply run with the same cache-dir to resume from the last saved state"
+        ),
+    )
     clustering_group.add_argument("--random-seed", type=int, metavar="SEED", help="random seed for reproducibility")
 
     # Core arguments
@@ -208,6 +251,13 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         "--project", type=str, metavar="NAME", help="name of the project"
     )
     parser.add_argument("--device", default="auto", help="device to use for computations (cpu, cuda, mps, ...)")
+    parser.add_argument(
+        "--preload-to-device",
+        action="store_true",
+        help="load the entire dataset into memory and move it to the specified device before clustering",
+    )
+    parser.add_argument("--compile", action="store_true", help="enable compilation")
+    parser.add_argument("--fast-matmul", action="store_true", help="use fast matrix multiplication (affects precision)")
     parser.add_argument("--force", action="store_true", help="override existing results")
     parser.add_argument(
         "--output-centers-csv", type=str, metavar="FILE", help="output CSV file for all hierarchical cluster centers"
