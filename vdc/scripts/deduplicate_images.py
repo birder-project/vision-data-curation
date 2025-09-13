@@ -191,9 +191,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
 
     # Deduplication parameters
     deduplication_group = parser.add_argument_group("Deduplication parameters")
-    deduplication_group.add_argument(
-        "--distance-metric", choices=["l2", "cosine"], metavar="METRIC", help="distance metric to use"
-    )
+    deduplication_group.add_argument("--distance-metric", choices=["l2", "cosine"], help="distance metric to use")
     deduplication_group.add_argument(
         "--lsh-index", type=str, metavar="FILE", help="path to the pre-built LSH index (.pkl)"
     )

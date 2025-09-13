@@ -1,0 +1,109 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.17.3
+  kernelspec:
+    display_name: vdc
+    language: python
+    name: vdc
+---
+
+```{python}
+import math
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+from PIL import Image
+```
+
+```{python}
+# %cd ..
+```
+
+```{python}
+DEDUPLICATION_REPORT_PATH = "results/tol10m/deduplication_report.csv"
+```
+
+```{python}
+df = pl.read_csv(DEDUPLICATION_REPORT_PATH)
+df.height, df["group_id"].n_unique()
+```
+
+```{python}
+df["distance"].describe()
+```
+
+```{python}
+hist_df = df["distance"].hist(bin_count=20)
+
+bin_edges = hist_df["breakpoint"].to_numpy()
+counts = hist_df["count"].to_numpy()
+
+left_edges = [float(cat.split(",")[0].strip("([ ]")) for cat in hist_df["category"]]
+left_edges = np.array(left_edges)
+
+bin_widths = bin_edges - left_edges
+
+plt.figure(figsize=(10, 6))
+plt.bar(left_edges, counts, width=bin_widths, align="edge", edgecolor="black", alpha=0.7)
+plt.xlabel("distance")
+plt.ylabel("count")
+plt.title("Histogram of distance");
+```
+
+```{python}
+CUTOFF = 0.04
+cutoff_df = df.filter(pl.col("distance") < CUTOFF)
+print(f"Samples in the cutoff: {cutoff_df.height:,}")
+
+samples = cutoff_df.sample(8)
+num_images = len(samples) * 2
+
+num_cols = 2
+num_rows = int(math.ceil(num_images / num_cols))
+
+fig_width = num_cols * 6
+fig_height = num_rows * 3
+
+plt.figure(figsize=(fig_width, fig_height))
+for i, row in enumerate(samples.iter_rows(named=True)):
+    i *= 2
+    img1_path = row["sample_id_1"]
+    img2_path = row["sample_id_2"]
+    dist = row["distance"]
+    ax1 = plt.subplot(num_rows, num_cols, i + 1)
+    ax2 = plt.subplot(num_rows, num_cols, i + 2)
+
+    print("Row:", i // 2 + 1)
+    print("Image 1:", img1_path)
+    print("Image 2:", img2_path)
+    img1 = Image.open(img1_path)
+    img2 = Image.open(img2_path)
+    ax1.imshow(img1)
+    ax2.imshow(img2)
+    ax1.set_title(f"{i//2+1}: {Path(img1_path).name} ({dist:.4f})")
+    ax2.set_title(Path(img2_path).name)
+    ax1.axis("off")
+    ax2.axis("off")
+
+plt.tight_layout()
+```
+
+```{python}
+
+```
+
+```{python}
+
+```
+
+```{python}
+
+```

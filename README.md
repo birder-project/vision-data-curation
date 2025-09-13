@@ -7,8 +7,8 @@ Built for computer vision researchers and practitioners who want higher-quality 
 
 This project is in early development. Most features are functional, but APIs may still change.
 
-- Implemented Features: Input validation, Example-based filtering, Aesthetic filtering, NSFW filtering, Hierarchical sampling
-- Features in Progress: Duplicate removal, Rotation correction
+- Implemented Features: Input validation, Duplicate removal, Example-based filtering, Aesthetic filtering, NSFW filtering, Hierarchical sampling
+- Features in Progress: Rotation correction
 
 Feedback and contributions are welcome.
 
@@ -80,9 +80,13 @@ python -m vdc.scripts.filter_by_examples data/embeddings.csv --examples bad_exam
 
 Configuration:
 
-- Default settings live in [vdc/conf/config.json](https://gitlab.com/birder/vision-data-curation/-/blob/main/vdc/conf/config.json)
+- Default settings live in [vdc/conf/config.json](vdc/conf/config.json)
 - A `config.json` in your project root will take precedence (or pass `--config` to any script)
+
+## Documentation
+
+For detailed walkthroughs, examples, and in-depth guides, please refer to our [full documentation](docs/README.md).
 
 ## License
 
-This project is licensed under the Apache-2.0 License - see the [LICENSE](https://gitlab.com/birder/vision-data-curation/blob/main/LICENSE) file for details.
+This project is licensed under the Apache-2.0 License - see the [LICENSE](LICENSE) file for details.

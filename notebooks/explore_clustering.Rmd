@@ -1,0 +1,197 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.17.3
+  kernelspec:
+    display_name: vdc
+    language: python
+    name: vdc
+---
+
+```{python}
+import math
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+from PIL import Image
+```
+
+```{python}
+# %cd ..
+```
+
+```{python}
+from vdc.sampling.allocation import WaterFillingAllocator
+from vdc.sampling.cluster import ClusterInfo
+from vdc.sampling.hierarchical_random_sampler import HierarchicalRandomSampler
+```
+
+```{python}
+ASSIGNMENTS_PATH = "results/tol10m/hierarchical_kmeans_assignments.csv"
+LEVEL = "level_0"
+PARENT_LEVEL = "_".join(LEVEL.split("_")[:-1] + [str(int(LEVEL.split("_")[-1]) + 1)])
+ALLOCATION_BUDGET = 3_000_000
+```
+
+```{python}
+df = pl.read_csv(ASSIGNMENTS_PATH)
+df.height
+```
+
+```{python}
+counts = df.group_by(LEVEL).len().sort("len", descending=True)
+counts["len"].describe()
+```
+
+```{python}
+clusters = counts[LEVEL].to_list()
+
+plt.figure(figsize=(10, 6))
+plt.bar(range(len(clusters)), counts["len"])
+plt.ylabel("Number of samples")
+plt.title(f"Cluster distribution for {LEVEL}")
+plt.ylim([0, 2000])
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+mapping = dict(zip(counts[LEVEL].to_list(), counts["len"].to_list()))
+allocator = WaterFillingAllocator()
+allocations = allocator.allocate(ALLOCATION_BUDGET, mapping)
+allocated_df = pl.DataFrame(
+    {
+        LEVEL: list(allocations.keys()),
+        "len": list(allocations.values()),
+    }
+)
+
+plt.figure(figsize=(10, 6))
+plt.bar(range(len(clusters)), allocated_df["len"])
+plt.ylabel("Number of samples")
+plt.title(f"Cluster allocation for {LEVEL}")
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+sampler = HierarchicalRandomSampler(allocator)
+sample_names = sampler.sample(ClusterInfo(df), ALLOCATION_BUDGET)
+len(sample_names)
+```
+
+```{python}
+sampled_df = df.filter(pl.col("sample").is_in(sample_names))
+sampled_counts = sampled_df.group_by(LEVEL).len().sort("len", descending=True)
+sampled_counts["len"].describe()
+```
+
+```{python}
+clusters = sampled_counts[LEVEL].to_list()
+
+plt.figure(figsize=(10, 6))
+plt.bar(range(len(clusters)), sampled_counts["len"])
+plt.ylabel("Number of samples")
+plt.title(f"Cluster sampled distribution for {LEVEL}")
+plt.ylim([0, 400])
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+PARENT_CLUSTER = 13
+sampled_counts_by_parent = (
+    sampled_df.filter(pl.col(PARENT_LEVEL) == PARENT_CLUSTER).group_by(LEVEL).len().sort("len", descending=True)
+)
+clusters = sampled_counts_by_parent[LEVEL].to_list()
+
+plt.figure(figsize=(10, 6))
+plt.bar(range(len(clusters)), sampled_counts_by_parent["len"])
+plt.ylabel("Number of samples")
+plt.title(f"Cluster sampled distribution for {LEVEL} with parent cluster {PARENT_CLUSTER}")
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+
+```
+
+```{python}
+counts[LEVEL][counts["len"].arg_max()]
+```
+
+```{python}
+counts.head(10), counts.filter(pl.col("len") > 3).tail(10)
+```
+
+```{python}
+CLUSTER_ID = 10
+cluster_df = df.filter(pl.col(LEVEL) == CLUSTER_ID)
+print(f"Samples in the cluster: {cluster_df.height:,}")
+
+samples = cluster_df.sample(12)
+num_images = len(samples)
+
+num_cols = 3  # int(math.ceil(math.sqrt(num_images)))
+num_rows = int(math.ceil(num_images / num_cols))
+
+fig_width = num_cols * 6
+fig_height = num_rows * 3
+
+plt.figure(figsize=(fig_width, fig_height))
+for i, row in enumerate(samples.iter_rows(named=True)):
+    img_path = row["sample"]
+    ax = plt.subplot(num_rows, num_cols, i + 1)
+
+    try:
+        img = Image.open(img_path)
+        print(f"{i + 1}: {img_path}")
+        ax.imshow(img)
+        ax.set_title(f"{i+1}: {Path(img_path).name}")
+        ax.axis("off")
+    except FileNotFoundError:
+        print(f"{i + 1}: {img_path} - not found")
+
+plt.tight_layout()
+```
+
+```{python}
+NUM_CLUSTERS = 4
+cluster_ids = counts.filter((pl.col("len") > 10) & (pl.col("len") < 2000)).sample(NUM_CLUSTERS)[LEVEL].to_list()
+
+num_images = 3 * NUM_CLUSTERS
+num_cols = 3
+num_rows = int(math.ceil(num_images / num_cols))
+
+fig_width = num_cols * 6
+fig_height = num_rows * 3
+plt.figure(figsize=(fig_width, fig_height))
+
+for group_idx, cluster_id in enumerate(cluster_ids):
+    cluster_df = df.filter(pl.col(LEVEL) == cluster_id)
+    samples = cluster_df.sample(3)
+
+    for i, row in enumerate(samples.iter_rows(named=True)):
+        idx = group_idx * 3 + i + 1
+        img_path = row["sample"]
+        ax = plt.subplot(num_rows, num_cols, idx)
+
+        try:
+            img = Image.open(img_path)
+            print(f"{idx}-{cluster_id}: {img_path}")
+            ax.imshow(img)
+            ax.set_title(f"{idx}-{cluster_id}: {Path(img_path).name}")
+            ax.axis("off")
+        except FileNotFoundError:
+            print(f"{idx}-{cluster_id}: {img_path} - not found")
+
+plt.tight_layout()
+```

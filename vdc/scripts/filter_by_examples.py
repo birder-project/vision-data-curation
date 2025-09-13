@@ -97,9 +97,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
 
     # Filtering parameters
     filtering_group = parser.add_argument_group("Filtering parameters")
-    filtering_group.add_argument(
-        "--distance-metric", choices=["l2", "cosine"], metavar="METRIC", help="distance metric to use"
-    )
+    filtering_group.add_argument("--distance-metric", choices=["l2", "cosine"], help="distance metric to use")
     filtering_group.add_argument(
         "--chunk-size", type=int, metavar="N", help="process embeddings in chunks to save memory"
     )

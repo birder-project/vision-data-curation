@@ -194,11 +194,9 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
         "--tol", type=float, metavar="TOL", help="tolerance for convergence (normalized change in centers)"
     )
     clustering_group.add_argument(
-        "--distance-metric", choices=["l2", "cosine"], metavar="METRIC", help="distance metric to use for clustering"
+        "--distance-metric", choices=["l2", "cosine"], help="distance metric to use for clustering"
     )
-    clustering_group.add_argument(
-        "--init-method", choices=["random", "kmeans++"], metavar="METHOD", help="centers initialization method"
-    )
+    clustering_group.add_argument("--init-method", choices=["random", "kmeans++"], help="centers initialization method")
     clustering_group.add_argument(
         "--n-local-trials", type=int, metavar="N", help="number of local trials for kmeans++ initialization"
     )
@@ -211,7 +209,6 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
     clustering_group.add_argument(
         "--method",
         choices=["centers", "resampled"],
-        metavar="METHOD",
         help="method for building hierarchy: 'centers' (traditional) or 'resampled' (with refinement)",
     )
     clustering_group.add_argument(

@@ -1,0 +1,96 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.17.3
+  kernelspec:
+    display_name: vdc
+    language: python
+    name: vdc
+---
+
+```{python}
+import math
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+from PIL import Image
+```
+
+```{python}
+# %cd ..
+```
+
+```{python}
+REPORT_PATH = "results/tol10m/filter_by_examples_maps_report.csv"
+SCORE_COLUMN = "distance"
+```
+
+```{python}
+df = pl.read_csv(REPORT_PATH)
+df.height
+```
+
+```{python}
+df[SCORE_COLUMN].describe()
+```
+
+```{python}
+hist_df = df[SCORE_COLUMN].hist(bin_count=20)
+
+bin_edges = hist_df["breakpoint"].to_numpy()
+counts = hist_df["count"].to_numpy()
+
+left_edges = [float(cat.split(",")[0].strip("([ ]")) for cat in hist_df["category"]]
+left_edges = np.array(left_edges)
+
+bin_widths = bin_edges - left_edges
+
+plt.figure(figsize=(10, 6))
+plt.bar(left_edges, counts, width=bin_widths, align="edge", edgecolor="black", alpha=0.7)
+plt.xlabel(SCORE_COLUMN)
+plt.ylabel("count")
+plt.title(f"Histogram of {SCORE_COLUMN}")
+```
+
+```{python}
+CUTOFF = 0.4
+cutoff_df = df.filter(pl.col(SCORE_COLUMN) < CUTOFF)
+print(f"Samples in the cutoff: {cutoff_df.height:,}")
+
+samples = cutoff_df.sample(9)
+num_images = len(samples)
+
+num_cols = int(math.ceil(math.sqrt(num_images)))
+num_rows = int(math.ceil(num_images / num_cols))
+
+fig_width = num_cols * 6
+fig_height = num_rows * 3
+
+plt.figure(figsize=(fig_width, fig_height))
+for i, row in enumerate(samples.iter_rows(named=True)):
+    img_path = row["sample"]
+    dist = row[SCORE_COLUMN]
+    ax = plt.subplot(num_rows, num_cols, i + 1)
+
+    try:
+        img = Image.open(img_path)
+        print(f"{i + 1}: {img_path}")
+        ax.imshow(img)
+        ax.set_title(f"{i+1}: {Path(img_path).name} ({dist:.4f})")
+        ax.axis("off")
+    except FileNotFoundError:
+        print(f"{i + 1}: {img_path} - not found")
+
+plt.tight_layout()
+```
+
+```{python}
+
+```

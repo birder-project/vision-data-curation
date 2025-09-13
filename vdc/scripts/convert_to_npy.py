@@ -74,7 +74,7 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
             "Usage examples:\n"
             "python -m vdc.scripts.convert_to_npy data/raw_embeddings.parquet\n"
             "python -m vdc.scripts.convert_to_npy --chunk-size 50000 "
-            "results/tol10m_rope_i_vit_l14_pn_ap_c1_pe-core_filtered_embeddings.parquet\n"
+            "results/tol10m_rope_i_vit_l14_pn_aps_c1_pe-core_filtered_embeddings.parquet\n"
             "python -m vdc.scripts.convert_to_npy --chunk-size 50000 data/logits.csv\n"
         ),
         formatter_class=cli.ArgumentHelpFormatter,
