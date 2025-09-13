@@ -36,7 +36,7 @@ Additionally, any excessively large images will be resized to cap their pixel co
 This path involves downloading the original Tree of Life 10M dataset (in JPEG format). This option offers maximum control but requires a more technical setup and understanding.
 
 1. **Download the Original Dataset:**
-    First, download the full Tree of Life 10M dataset to your desired location (e.g., `~/Datasets/TreeOfLife-10M-orig`). Use the provided `download_tol10m.sh` script for this:
+    First, download the full Tree of Life 10M dataset to your desired location (e.g., `~/Datasets/TreeOfLife-10M-orig`). Use the provided [download_tol10m.sh](../../scripts/download_tol10m.sh) script for this:
 
     ```sh
     # The script will download the dataset to the CWD
@@ -62,6 +62,8 @@ Download the dataset from the following link to your desired location (e.g., `~/
 <https://huggingface.co/datasets/birder-project/TreeOfLife-10M-WEBP>
 
 You can use `git clone` with `git lfs` for large files or download it via the Hugging Face CLI or UI.
+
+Install the Hugging Face CLI via `pip install huggingface_hub` if you haven't already:
 
 ```sh
 hf download birder-project/TreeOfLife-10M-WEBP --repo-type dataset
@@ -266,6 +268,15 @@ At the previous step, we saw quite a lot of drawings left. Let's try and filter 
     ```
 
     Starting from 5,908,775 images, the conservative filtering steps brought the dataset down to 5,607,951 images. This low amount of filtered images is a testament to the original dataset's quality.
+
+### Intermediate Curated Dataset
+
+For those who wish to bypass the comprehensive cleaning pipeline and start directly with a filtered dataset composed *exclusively of natural images* (ready for custom sampling), you can download this intermediate version of the Tree of Life 10M (EOL) training split from Hugging Face:
+
+<https://huggingface.co/datasets/birder-project/TreeOfLife-10M-EOL-NaturalImages>
+
+This dataset contains all images that remained after `sanitize_images`, deduplication, and all rounds of example-based and aesthetic filtering, prior to any sampling.
+It serves as a high-quality base for further specialized curation or custom sampling strategies.
 
 ### Step 7: Hierarchical K-Means Sampling
 

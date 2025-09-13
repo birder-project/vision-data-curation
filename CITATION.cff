@@ -1,0 +1,20 @@
+# This CITATION.cff file was generated with cffinit.
+
+cff-version: 1.2.0
+title: Vision Data Curation
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Ofer
+    family-names: Hasson
+repository-code: "https://gitlab.com/birder/vision-data-curation"
+url: "https://gitlab.com/birder/vision-data-curation"
+repository-artifact: "https://pypi.org/project/vision-data-curation/"
+abstract: >-
+  A pipeline for curating and sanitizing large-scale image datasets.
+keywords:
+  - computer-vision
+  - data-curation
+license: Apache-2.0
