@@ -336,6 +336,14 @@ For this step, we can also use [BioCLIP-2](https://huggingface.co/birder-project
     python -m vdc.scripts.sample_images --project tol10m --total-samples 3_000_000
     ```
 
+    To actually perform the sampling, add `--apply-deletion`.
+
+    If you’ve reviewed the sampled list and are satisfied, you can re-run with:
+
+    ```sh
+    python -m vdc.scripts.sample_images --project tol10m --use-existing-sampled-list --apply-deletion
+    ```
+
     After all filtering and sampling steps, the dataset now contains exactly 3,000,000 diverse images, precisely achieving our target for the SSL-purposed dataset.
 
 ## Conclusion
