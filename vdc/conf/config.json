@@ -19,6 +19,9 @@
     "max_file_size_mb": 10.0,
     "check_corruption": true
   },
+  "rotation_correction": {
+    "threshold": 0.75
+  },
   "build_lsh_index": {
     "num_hash_tables": 4,
     "num_hyperplanes_per_table": 18,

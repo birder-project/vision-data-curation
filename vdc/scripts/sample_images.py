@@ -42,7 +42,7 @@ def _process_deletion_action_for_unselected(file_path: str, backup_dir: Optional
     }
 
 
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals,too-many-branches
 def sample_images(args: argparse.Namespace) -> None:
     if os.path.exists(args.output_csv) is True and args.force is False and args.use_existing_sampled_list is False:
         logger.warning(f"Output CSV already exists at: {args.output_csv}, use --force to overwrite")
@@ -153,7 +153,8 @@ def sample_images(args: argparse.Namespace) -> None:
     logger.info(f"Sampling complete. Selected {len(selected_samples):,} samples (requested: {total_samples:,})")
     logger.info(f"Unselected files deleted: {total_files_deleted:,}")
     logger.info(f"Unselected files skipped: {total_files_skipped:,}")
-    logger.info(f"Sampled list saved to: {args.output_csv}")
+    if args.use_existing_sampled_list is False:
+        logger.info(f"Sampled list saved to: {args.output_csv}")
 
 
 def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:

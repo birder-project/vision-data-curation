@@ -90,7 +90,7 @@ def build_lsh_index(args: argparse.Namespace) -> None:
     with tqdm(desc="Building LSH index", leave=False, unit="samples") as progress_bar:
         for df_batch in utils.data_file_iter(args.embeddings_path, batch_size=args.chunk_size):
             sample_ids = df_batch.select("sample").to_series().to_list()
-            embeddings_batch = utils.df_to_numpy(df_batch)
+            embeddings_batch = torch.from_numpy(utils.df_to_numpy(df_batch)).to(device=device)
 
             lsh_index.add_embeddings(sample_ids, embeddings_batch)
 

@@ -112,7 +112,7 @@ def _perform_remediation_action(file_path: str, action: RemediationAction, args:
         backup_path = utils.build_backup_path(original_path, args.backup_dir)
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         if backup_path.exists() is True:
-            logger.error(f"Backup file already exists: {backup_path}. Skipping remediation.")
+            logger.error(f"Backup file already exists: {backup_path}, skipping remediation")
             return False
 
         try:

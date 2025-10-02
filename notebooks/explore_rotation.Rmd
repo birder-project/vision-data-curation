@@ -1,0 +1,145 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.17.3
+  kernelspec:
+    display_name: vdc
+    language: python
+    name: vdc
+---
+
+```{python}
+import math
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+from PIL import Image
+```
+
+```{python}
+# %cd ..
+```
+
+```{python}
+ROTATION_REPORT_PATH = "results/gldv2/rotation_correction_report.csv"
+```
+
+```{python}
+df = pl.read_csv(ROTATION_REPORT_PATH)
+df.height
+```
+
+```{python}
+df["confidence"].describe()
+```
+
+```{python}
+count_df = df["rotation_angle"].value_counts()
+
+plt.figure(figsize=(10, 6))
+plt.bar(count_df["rotation_angle"], count_df["count"], width=60, edgecolor="black", alpha=0.7)
+
+plt.xlabel("Rotation Angle (degrees)")
+plt.ylabel("Count")
+plt.title("Amount of Image Rotations per Angle")
+plt.xticks(count_df["rotation_angle"])
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+```
+
+```{python}
+CUTOFF = 0.9
+count_df = df.filter(pl.col("confidence") > CUTOFF)["rotation_angle"].value_counts()
+
+plt.figure(figsize=(10, 6))
+plt.bar(count_df["rotation_angle"], count_df["count"], width=60, edgecolor="black", alpha=0.7)
+
+plt.xlabel("Rotation Angle (degrees)")
+plt.ylabel("Count")
+plt.title("Amount of Image Rotations per Angle")
+plt.xticks(count_df["rotation_angle"])
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+```
+
+```{python}
+CUTOFF = 0.9
+cutoff_df = df.filter(pl.col("confidence") > CUTOFF)
+print(f"Samples in the cutoff: {cutoff_df.height:,}")
+
+samples = cutoff_df.sample(6)
+num_images = len(samples) * 2
+
+num_cols = 2
+num_rows = int(math.ceil(num_images / num_cols))
+
+fig_width = num_cols * 6
+fig_height = num_rows * 3
+
+plt.figure(figsize=(fig_width, fig_height))
+for i, row in enumerate(samples.iter_rows(named=True)):
+    i *= 2
+    img_path = row["file_path"]
+    prob = row["confidence"]
+    rotation_angle = row["rotation_angle"]
+    ax1 = plt.subplot(num_rows, num_cols, i + 1)
+    ax2 = plt.subplot(num_rows, num_cols, i + 2)
+
+    print("Row:", i // 2 + 1, "Image:", img_path)
+    img = Image.open(img_path)
+    corrected_img = img.rotate(-rotation_angle, expand=True)
+    ax1.imshow(img)
+    ax2.imshow(corrected_img)
+    ax1.set_title(f"{i//2+1} {Path(img_path).name}: Original ({rotation_angle}°, {prob:.4f})")
+    ax2.set_title("Corrected")
+    ax1.axis("off")
+    ax2.axis("off")
+
+plt.tight_layout()
+```
+
+```{python}
+CUTOFF = 0.9
+ROTATION_ANGLE = 180
+cutoff_df = df.filter((pl.col("rotation_angle") == ROTATION_ANGLE) & (pl.col("confidence") > CUTOFF))
+print(f"Samples with selected rotation: {cutoff_df.height:,}")
+
+samples = cutoff_df.sample(8)
+num_images = len(samples) * 2
+
+num_cols = 2
+num_rows = int(math.ceil(num_images / num_cols))
+
+fig_width = num_cols * 6
+fig_height = num_rows * 3
+
+plt.figure(figsize=(fig_width, fig_height))
+for i, row in enumerate(samples.iter_rows(named=True)):
+    i *= 2
+    img_path = row["file_path"]
+    prob = row["confidence"]
+    rotation_angle = row["rotation_angle"]
+    ax1 = plt.subplot(num_rows, num_cols, i + 1)
+    ax2 = plt.subplot(num_rows, num_cols, i + 2)
+
+    print("Row:", i // 2 + 1, "Image:", img_path)
+    img = Image.open(img_path)
+    corrected_img = img.rotate(-rotation_angle, expand=True)
+    ax1.imshow(img)
+    ax2.imshow(corrected_img)
+    ax1.set_title(f"{i//2+1} {Path(img_path).name}: Original ({rotation_angle}°, {prob:.4f})")
+    ax2.set_title("Corrected")
+    ax1.axis("off")
+    ax2.axis("off")
+
+plt.tight_layout()
+```
+
+```{python}
+
+```

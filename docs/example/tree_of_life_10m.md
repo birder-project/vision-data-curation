@@ -71,7 +71,7 @@ hf download birder-project/TreeOfLife-10M-WEBP --repo-type dataset
 
 ### Step 2: Sanitize Images (Input Validation)
 
-The `sanitize_images` script detects and fixes issues like corrupt files, invalid formats, or low resolution. In this step, we apply fixes directly, backing up any deleted files.
+The `sanitize_images` script detects and fixes issues like corrupt files, invalid formats or low resolution. In this step, we apply fixes directly, backing up any deleted files.
 
 ```sh
 python -m vdc.scripts.sanitize_images --project tol10m --apply-fixes --backup-dir data/backup/tol10m/sanitize ~/Datasets/TreeOfLife-10M
@@ -246,9 +246,15 @@ Started from 5,908,775 we're now down to 5,698,042 with very conservative filter
 
 At the previous step, we saw quite a lot of drawings left. Let's try and filter some more.
 
-1. **Generate Embeddings for "Extra" Unwanted Examples:**
+1. **Prune Embeddings for Removed Samples (Optional):**
 
-    You can also reuse previous embeddings, just prune removed images using the `prune_missing_samples` script.
+    You can either use existing embeddings and ignore "file not found" errors for already removed samples, or prune removed images using the `prune_missing_samples` script.
+
+    ```sh
+    python -m vdc.scripts.prune_missing_samples --output-file results/tol10m_rope_i_vit_l14_pn_aps_c1_pe-core_filtered_embeddings.parquet results/tol10m_rope_i_vit_l14_pn_aps_c1_pe-core_0_336px_crop1.0_5779494_embeddings.parquet
+    ```
+
+1. **Generate Embeddings for "Extra" Unwanted Examples:**
 
     ```sh
     python -m birder.scripts.predict -n rope_i_vit_l14_pn_aps_c1 -t pe-core --gpu --parallel --amp --amp-dtype bfloat16 --batch-size 256 --chunk-size 50000 --save-embeddings --output-format parquet --prefix tol10m-extra /mnt/local/Datasets/TreeOfLife-10M/unwanted_examples/extra

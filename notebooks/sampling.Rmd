@@ -1,0 +1,317 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.17.3
+  kernelspec:
+    display_name: vdc
+    language: python
+    name: vdc
+---
+
+```{python}
+from typing import Optional
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+import torch
+from scipy.spatial import Voronoi
+from scipy.spatial import voronoi_plot_2d
+```
+
+```{python}
+# %cd ..
+```
+
+```{python}
+from pt_kmeans import hierarchical_kmeans
+from vdc.sampling.allocation import LRMAllocator
+from vdc.sampling.allocation import WaterFillingAllocator
+from vdc.sampling.cluster import ClusterInfo
+from vdc.sampling.hierarchical_random_sampler import HierarchicalRandomSampler
+```
+
+```{python}
+SAMPLE_SIZE = 600
+```
+
+```{python}
+def generate_curve_data(
+    n_samples: int, noise_level: float, multiplier: float, stretch: float = 1.0, random_state: Optional[int] = None
+):
+    if random_state is not None:
+        np.random.seed(random_state)
+
+    t = np.random.uniform(-stretch * np.pi, stretch * np.pi, n_samples)
+    x = np.sin(t) * 2
+    y = np.cos(t / 2) * 2
+
+    x_transformed = x + np.cos(y / 2) * multiplier
+    y_transformed = y
+
+    x_noisy = x_transformed + np.random.normal(scale=noise_level, size=n_samples)
+    y_noisy = y_transformed + np.random.normal(scale=noise_level, size=n_samples)
+
+    return np.vstack((x_noisy, y_noisy)).T
+
+
+def generate_random_data_in_rectangle(num_samples: int, random_state: Optional[int] = None):
+    if random_state is not None:
+        np.random.seed(random_state)
+
+    x_coords = np.random.uniform(low=-3, high=3, size=num_samples)
+    y_coords = np.random.uniform(low=-3, high=3, size=num_samples)
+
+    return np.vstack((x_coords, y_coords)).T
+
+
+def generate_gaussian_blob(center_x: float, center_y: float, std_dev: float, num_samples: int):
+    x_coords = np.random.normal(loc=center_x, scale=std_dev, size=num_samples)
+    y_coords = np.random.normal(loc=center_y, scale=std_dev, size=num_samples)
+
+    return np.vstack((x_coords, y_coords)).T
+```
+
+```{python}
+x = np.concatenate(
+    [
+        generate_curve_data(n_samples=8000, noise_level=0.1, multiplier=3.5, stretch=1.5) + np.array([-3.5, 0.8]),
+        generate_curve_data(n_samples=300, noise_level=0.1, multiplier=3.5, stretch=1.5) + np.array([-0.5, 0.5]),
+        generate_curve_data(n_samples=500, noise_level=0.1, multiplier=1.0, stretch=1.0) + np.array([4.0, 0.0]),
+        generate_curve_data(n_samples=12000, noise_level=0.075, multiplier=4.5, stretch=2.5) + np.array([3.5, -0.6]),
+    ]
+)
+# x = np.concatenate(
+#     [
+#         generate_random_data_in_rectangle(14000),
+#         generate_gaussian_blob(-1.0, -1.5, 0.3, 3000),
+#         generate_gaussian_blob(0.0, 1.3, 0.35, 3000),
+#     ]
+# )
+
+x = torch.tensor(x, dtype=torch.float32)
+
+plt.figure(figsize=(12, 6))
+plt.scatter(x[:, 0], x[:, 1], alpha=0.4, s=10)
+```
+
+```{python}
+center_results = hierarchical_kmeans(
+    x,
+    n_clusters=[700, 20],
+    random_seed=0,
+    method="center",
+)
+resampled_results = hierarchical_kmeans(
+    x,
+    n_clusters=[700, 20],
+    random_seed=0,
+    method="resampled",
+    n_samples=[10, 2],
+)
+flat_results = hierarchical_kmeans(
+    x,
+    n_clusters=[700],
+    random_seed=0,
+)
+```
+
+```{python}
+def plot_clustering_levels(x, levels, titles=None, figsize=(20, 8), point_size: int = 20, alpha: float = 0.6):
+    x = x.numpy()
+    n_levels = len(levels)
+    (fig, axes) = plt.subplots(1, n_levels + 1, figsize=figsize, squeeze=False)
+    axes = axes[0]
+
+    # Original data
+    axes[0].scatter(x[:, 0], x[:, 1], alpha=alpha, s=point_size)
+    axes[0].set_title("Original Data", fontsize=12, fontweight="bold")
+    axes[0].grid(True, alpha=0.3)
+
+    # Each clustering level
+    for i, level in enumerate(levels, start=1):
+        centers = level["centers"].numpy()
+        labels = level["assignment"].numpy()
+
+        # pick colormap that supports arbitrary clusters
+        cmap = mpl.colormaps.get_cmap("tab20").resampled(np.max(labels) + 1)
+
+        axes[i].scatter(x[:, 0], x[:, 1], c=cmap(labels), alpha=alpha, s=point_size)
+        if i > 1:
+            axes[i].scatter(centers[:, 0], centers[:, 1], c="red", marker="x", s=150, linewidth=2, label="Centers")
+        if titles and i - 1 < len(titles):
+            axes[i].set_title(titles[i - 1], fontsize=12, fontweight="bold")
+        else:
+            axes[i].set_title(f"Level {i} (k={len(centers)})", fontsize=12, fontweight="bold")
+
+        axes[i].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    return (fig, axes)
+
+
+def plot_voronoi_levels(x, levels, titles=None, figsize=(20, 8), point_size: int = 2):
+    x = x.numpy()
+    n_levels = len(levels)
+    (fig, axes) = plt.subplots(1, n_levels, figsize=figsize, squeeze=False)
+    axes = axes[0]
+
+    for i, level in enumerate(levels):
+        centers = level["centers"].numpy()
+
+        if len(centers) > 1:
+            voronoi = Voronoi(centers)
+            voronoi_plot_2d(
+                voronoi,
+                axes[i],
+                point_size=point_size,
+                show_vertices=False,
+                line_colors="blue",
+                line_width=0.4,
+                line_alpha=0.6,
+            )
+
+            if titles and i < len(titles):
+                axes[i].set_title(titles[i], fontsize=12, fontweight="bold")
+            else:
+                axes[i].set_title(f"Voronoi - Level {i+1} (k={len(centers)})", fontsize=12, fontweight="bold")
+
+            axes[i].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    return (fig, axes)
+
+
+def plot_sampling_comparisons(
+    x, sample_indices_list, titles=None, figsize=(20, 8), point_size: int = 20, alpha: float = 0.6
+):
+    x = x.numpy()
+    n_strategies = len(sample_indices_list)
+    (fig, axes) = plt.subplots(1, n_strategies + 1, figsize=figsize, squeeze=False)
+    axes = axes[0]
+
+    axes[0].scatter(x[:, 0], x[:, 1], alpha=alpha, s=point_size)
+    axes[0].set_title("Original Data", fontsize=12, fontweight="bold")
+    axes[0].grid(True, alpha=0.3)
+
+    for i, (ax, sample_indices) in enumerate(zip(axes[1:], sample_indices_list)):
+        ax.scatter(
+            x[sample_indices, 0], x[sample_indices, 1], s=point_size * 2, alpha=alpha, edgecolor="black", linewidth=0.5
+        )
+
+        # Title
+        if titles and i < len(titles):
+            ax.set_title(titles[i], fontsize=12, fontweight="bold")
+        else:
+            ax.set_title(f"Strategy {i+1}", fontsize=12, fontweight="bold")
+
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    return (fig, axes)
+```
+
+```{python}
+(fig, axes) = plot_clustering_levels(x, center_results, point_size=10)
+```
+
+```{python}
+(fig, axes) = plot_clustering_levels(x, resampled_results, point_size=10)
+```
+
+```{python}
+(fig, axes) = plot_voronoi_levels(x, center_results)
+```
+
+```{python}
+(fig, axes) = plot_voronoi_levels(x, resampled_results)
+```
+
+```{python}
+n_samples = center_results[0]["assignment"].size(0)
+all_rows = []
+for sample_idx in range(n_samples):
+    row = {
+        "sample": sample_idx,
+        **{f"level_{level}": result["assignment"][sample_idx].item() for level, result in enumerate(center_results)},
+    }
+    all_rows.append(row)
+
+center_assignments_df = pl.DataFrame(all_rows)
+
+center_cluster_info = ClusterInfo(center_assignments_df)
+
+
+n_samples = resampled_results[0]["assignment"].size(0)
+all_rows = []
+for sample_idx in range(n_samples):
+    row = {
+        "sample": sample_idx,
+        **{f"level_{level}": result["assignment"][sample_idx].item() for level, result in enumerate(resampled_results)},
+    }
+    all_rows.append(row)
+
+resampled_assignments_df = pl.DataFrame(all_rows)
+
+resampled_cluster_info = ClusterInfo(resampled_assignments_df)
+
+
+n_samples = flat_results[0]["assignment"].size(0)
+all_rows = []
+for sample_idx in range(n_samples):
+    row = {
+        "sample": sample_idx,
+        **{f"level_{level}": result["assignment"][sample_idx].item() for level, result in enumerate(flat_results)},
+    }
+    all_rows.append(row)
+
+flat_assignments_df = pl.DataFrame(all_rows)
+
+flat_cluster_info = ClusterInfo(flat_assignments_df)
+```
+
+```{python}
+wd_hierarchical_random_sampler = HierarchicalRandomSampler(WaterFillingAllocator())
+wf_center_selected_samples = wd_hierarchical_random_sampler.sample(
+    cluster_info=center_cluster_info, total_samples=SAMPLE_SIZE, random_seed=0
+)
+wf_resampled_selected_samples = wd_hierarchical_random_sampler.sample(
+    cluster_info=resampled_cluster_info, total_samples=SAMPLE_SIZE, random_seed=0
+)
+wf_flat_selected_samples = wd_hierarchical_random_sampler.sample(
+    cluster_info=flat_cluster_info, total_samples=SAMPLE_SIZE, random_seed=0
+)
+
+lrm_hierarchical_random_sampler = HierarchicalRandomSampler(LRMAllocator())
+lrm_center_selected_samples = lrm_hierarchical_random_sampler.sample(
+    cluster_info=center_cluster_info, total_samples=SAMPLE_SIZE, random_seed=0
+)
+lrm_resampled_selected_samples = lrm_hierarchical_random_sampler.sample(
+    cluster_info=resampled_cluster_info, total_samples=SAMPLE_SIZE, random_seed=0
+)
+lrm_flat_selected_samples = lrm_hierarchical_random_sampler.sample(
+    cluster_info=flat_cluster_info, total_samples=SAMPLE_SIZE, random_seed=0
+)
+```
+
+```{python}
+titles = ["LRM Center", "LRM Resampled"]
+(fig, axes) = plot_sampling_comparisons(x, [lrm_center_selected_samples, lrm_resampled_selected_samples], titles=titles)
+```
+
+```{python}
+titles = ["WF Center", "WF Resampled"]
+(fig, axes) = plot_sampling_comparisons(x, [wf_center_selected_samples, wf_resampled_selected_samples], titles=titles)
+```
+
+```{python}
+random_indices = np.random.choice(np.arange(x.size(0)), size=SAMPLE_SIZE)
+titles = ["Random", "LRM Flat"]
+(fig, axes) = plot_sampling_comparisons(x, [random_indices, lrm_flat_selected_samples], titles=titles)
+```

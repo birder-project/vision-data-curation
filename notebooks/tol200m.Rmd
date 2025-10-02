@@ -1,0 +1,280 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.17.3
+  kernelspec:
+    display_name: vdc
+    language: python
+    name: vdc
+---
+
+```{python}
+import polars as pl
+```
+
+```{python}
+# %cd ..
+```
+
+```{python}
+from vdc.sampling.allocation import LRMAllocator
+from vdc.sampling.cluster import ClusterInfo
+from vdc.sampling.hierarchical_random_sampler import HierarchicalRandomSampler
+```
+
+```{python}
+pl.read_parquet("~/Datasets/TreeOfLife-200M/catalog.parquet", n_rows=3)
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/catalog.parquet")
+lf = lf.filter(pl.col("img_type") == "Camera-trap").select(pl.len())
+lf.collect().item()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/catalog.parquet")
+lf = lf.filter(pl.col("img_type") == "Citizen Science").select(pl.len())
+lf.collect().item()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/catalog.parquet")
+lf = lf.filter(pl.col("source_url").is_not_null())
+lf = lf.filter((pl.col("img_type") == "Citizen Science") | (pl.col("img_type") == "Camera-trap"))
+lf = lf.filter(pl.col("kingdom").is_in(["Animalia", "Plantae", "Fungi"]))
+lf = lf.filter(pl.col("phylum").is_not_null())
+lf = lf.filter(~pl.col("publisher").str.starts_with("Xeno-canto"))  # Spectrograms
+lf.sink_parquet("~/Datasets/TreeOfLife-200M/natural.parquet")
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural.parquet")
+lf.select(pl.len()).collect().item()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural.parquet")
+lf = lf.select(["class", "order", "family", "genus", "species"])
+lf.null_count().collect()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural.parquet")
+lf = lf.filter(~pl.any_horizontal(pl.col(["class", "order", "family", "genus", "species"]).is_null()))
+lf.select(pl.len()).collect().item()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural.parquet")
+df = lf.group_by("phylum").len().collect()
+
+with pl.Config(tbl_rows=-1):
+    print(df.sort(by="len", descending=True))
+```
+
+```{python}
+phylum_to_filter = df.filter(pl.col("len") < 1000)["phylum"].to_list()
+phylum_to_filter.extend(
+    ["Chaetognatha", "Chytridiomycota", "Nemertea", "Rotifera", "Nematoda", "Ctenophora", "Mucoromycota", "Bryozoa"]
+)
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural.parquet")
+lf = lf.filter(~pl.col("phylum").is_in(phylum_to_filter))
+lf = lf.filter(~pl.any_horizontal(pl.col(["class", "order", "family", "genus", "species"]).is_null()))
+lf.sink_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf.select(pl.len()).collect().item()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf.group_by("kingdom").len().sort(by="kingdom").collect()
+```
+
+```{python}
+ANIMALIA_BUDGET = 6_000_000
+PLANTAE_BUDGET = 3_000_000
+FUNGI_BUDGET = 1_000_000
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf = lf.filter(pl.col("kingdom") == "Animalia")
+lf.group_by("class").len().sort(by="class").collect()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf = lf.filter(pl.col("kingdom") == "Animalia")
+lf = lf.select(["source_url", "class", "order"])
+lf = lf.unique(subset=["source_url"], keep="any")
+df = lf.collect()
+```
+
+```{python}
+df = df.with_columns(
+    [
+        pl.col("class").cast(pl.Categorical),
+        pl.col("order").cast(pl.Categorical),
+    ]
+)
+df = df.rename(
+    {
+        "source_url": "sample",
+        "class": "level_0",
+        "order": "level_1",
+    }
+)
+df.height
+```
+
+```{python}
+cluster_info = ClusterInfo(
+    df.select(
+        [
+            "sample",
+            pl.col("level_0").to_physical().alias("level_0"),
+            pl.col("level_1").to_physical().alias("level_1"),
+        ]
+    )
+)
+cluster_info
+```
+
+```{python}
+sampler = HierarchicalRandomSampler(LRMAllocator())
+samples = sampler.sample(cluster_info, total_samples=ANIMALIA_BUDGET)
+```
+
+```{python}
+pl.DataFrame({"source_url": samples}).write_parquet("~/Datasets/TreeOfLife-200M/animalia-sample.parquet")
+```
+
+```{python}
+
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf = lf.filter(pl.col("kingdom") == "Fungi")
+lf.group_by("class").len().sort(by="class").collect()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf = lf.filter(pl.col("kingdom") == "Fungi")
+lf = lf.select(["source_url", "class", "order"])
+lf = lf.unique(subset=["source_url"], keep="any")
+df = lf.collect()
+```
+
+```{python}
+df = df.with_columns(
+    [
+        pl.col("class").cast(pl.Categorical),
+        pl.col("order").cast(pl.Categorical),
+    ]
+)
+df = df.rename(
+    {
+        "source_url": "sample",
+        "class": "level_0",
+        "order": "level_1",
+    }
+)
+df.height
+```
+
+```{python}
+cluster_info = ClusterInfo(
+    df.select(
+        [
+            "sample",
+            pl.col("level_0").to_physical().alias("level_0"),
+            pl.col("level_1").to_physical().alias("level_1"),
+        ]
+    )
+)
+cluster_info
+```
+
+```{python}
+sampler = HierarchicalRandomSampler(LRMAllocator())
+samples = sampler.sample(cluster_info, total_samples=FUNGI_BUDGET)
+```
+
+```{python}
+pl.DataFrame({"source_url": samples}).write_parquet("~/Datasets/TreeOfLife-200M/fungi-sample.parquet")
+```
+
+```{python}
+
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf = lf.filter(pl.col("kingdom") == "Plantae")
+lf.group_by("class").len().sort(by="class").collect()
+```
+
+```{python}
+lf = pl.scan_parquet("~/Datasets/TreeOfLife-200M/natural-filtered.parquet")
+lf = lf.filter(pl.col("kingdom") == "Plantae")
+lf = lf.select(["source_url", "class", "order"])
+lf = lf.unique(subset=["source_url"], keep="any")
+df = lf.collect()
+```
+
+```{python}
+df = df.with_columns(
+    [
+        pl.col("class").cast(pl.Categorical),
+        pl.col("order").cast(pl.Categorical),
+    ]
+)
+df = df.rename(
+    {
+        "source_url": "sample",
+        "class": "level_0",
+        "order": "level_1",
+    }
+)
+df.height
+```
+
+```{python}
+cluster_info = ClusterInfo(
+    df.select(
+        [
+            "sample",
+            pl.col("level_0").to_physical().alias("level_0"),
+            pl.col("level_1").to_physical().alias("level_1"),
+        ]
+    )
+)
+cluster_info
+```
+
+```{python}
+sampler = HierarchicalRandomSampler(LRMAllocator())
+samples = sampler.sample(cluster_info, total_samples=PLANTAE_BUDGET)
+```
+
+```{python}
+pl.DataFrame({"source_url": samples}).write_parquet("~/Datasets/TreeOfLife-200M/plantae-sample.parquet")
+```
+
+```{python}
+
+```

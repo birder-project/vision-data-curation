@@ -3,35 +3,26 @@
 A lightweight framework for cleaning, filtering, and sampling large-scale image datasets.
 Built for computer vision researchers and practitioners who want higher-quality data with less manual effort.
 
-## Status
-
-This project is in early development. Most features are functional, but APIs may still change.
-
-- Implemented Features: Input validation, Duplicate removal, Example-based filtering, Aesthetic filtering, NSFW filtering, Hierarchical sampling
-- Features in Progress: Rotation correction
-
-Feedback and contributions are welcome.
+At its core, VDC embraces a data-centric AI philosophy, aiming to enhance the quality and diversity of your datasets with minimal manual intervention.
+By providing a structured, iterative pipeline, VDC helps researchers and practitioners build higher-performing models by starting with better data.
 
 ## Features
 
 VDC provides modular tools for dataset cleanup:
 
 - **Input validation** - detect corrupt files, invalid formats, low resolution, or extreme aspect ratios
+- **Rotation correction** - correct 90°/180°/270° orientation errors
 - **Example-based filtering** - remove images similar to a set of unwanted examples
 - **Image Quality Filtering** - remove images based on aesthetic score or NSFW classification
 - **Duplicate removal** - identify and remove near-duplicate images from your dataset
 - **Hierarchical K-Means sampling** - select diverse, representative subsets from large datasets
-
-**Coming soon:**
-
-- Rotation correction (correct 90°/180°/270° orientation errors)
 
 ## The Curation Pipeline
 
 ```mermaid
 flowchart LR
     A[Raw<br/>Dataset] --> V[Validation]
-    V --> R[Rotation*]
+    V --> R[Rotation]
     R --> D[Dedup]
     D --> E[Example<br/>Filter]
     E --> Q[Quality Filter<br/>Aesthetic/NSFW]
@@ -40,8 +31,6 @@ flowchart LR
 
     U[Unwanted<br/>Examples] --> E
 ```
-
-Note: * = WIP
 
 ## Installation
 
@@ -78,10 +67,21 @@ python -m vdc.scripts.filter_by_examples data/embeddings.csv --examples bad_exam
 - Run `python -m vdc.scripts` to see available scripts
 - Run `python -m vdc.scripts.<script> --help` for options
 
-Configuration:
+**Model Downloads:** Models required for certain features (e.g., SSCD, PE, CLIP, aesthetic/NSFW predictors) are automatically downloaded to and managed within the `models/` directory (defined by `vdc.conf.settings.MODELS_DIR`).
+
+## Configuration
 
 - Default settings live in [vdc/conf/config.json](vdc/conf/config.json)
 - A `config.json` in your project root will take precedence (or pass `--config` to any script)
+
+## Visualization & Exploration
+
+VDC provides accompanying R Markdown notebooks (found in the `notebooks/` directory) to visually inspect and understand the impact of various curation steps, aiding in data-driven decision making.
+
+While these notebooks use the `.Rmd` extension, they are entirely written in Python.
+This choice was made for their text-based nature, which significantly improves version control by producing clean and meaningful Git diffs compared to traditional `.ipynb` files.
+
+For a seamless interactive experience in a Jupyter environment, we recommend installing `jupytext` (`pip install jupytext`). With `jupytext` installed, you can open and run `.Rmd` files directly in Jupyter as if they were `.ipynb` notebooks.
 
 ## Documentation
 
