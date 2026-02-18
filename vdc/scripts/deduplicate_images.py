@@ -54,7 +54,7 @@ def find_duplicate_pairs(
         mask = torch.ones_like(distances, dtype=torch.bool)
 
     mask = torch.triu(mask, diagonal=1)
-    (row_indices, col_indices) = torch.where(mask)
+    row_indices, col_indices = torch.where(mask)
 
     for row_idx, col_idx in zip(row_indices.tolist(), col_indices.tolist()):
         sample_id_1 = group_member_ids[row_idx]
@@ -144,7 +144,7 @@ def deduplicate_images(args: argparse.Namespace) -> None:
 
     dsu = DSU(all_sample_ids.to_list())
     for pair_frozenset in reported_pairs_with_distances:
-        (id1, id2) = list(pair_frozenset)
+        id1, id2 = list(pair_frozenset)
         dsu.union(id1, id2)
 
     all_components = dsu.get_components()
@@ -228,8 +228,8 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
 
 
 def parse_args() -> argparse.Namespace:
-    (config_parser, parser) = get_args_parser()
-    (args_config, remaining) = config_parser.parse_known_args()
+    config_parser, parser = get_args_parser()
+    args_config, remaining = config_parser.parse_known_args()
 
     if args_config.config is None:
         logger.debug("No user config file specified. Loading default bundled config")

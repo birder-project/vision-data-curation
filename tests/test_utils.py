@@ -137,8 +137,8 @@ class TestInferenceDatasetCSV(unittest.TestCase):
                 self.assertIsInstance(actual, tuple)
                 self.assertEqual(len(actual), len(expected))
 
-                (actual_tensor, *actual_metadata) = actual
-                (expected_tensor, *expected_metadata) = expected
+                actual_tensor, *actual_metadata = actual
+                expected_tensor, *expected_metadata = expected
 
                 torch.testing.assert_close(actual_tensor, expected_tensor)
                 self.assertEqual(actual_tensor.dtype, torch.float32)
@@ -166,8 +166,8 @@ class TestInferenceDatasetCSV(unittest.TestCase):
                 self.assertIsInstance(actual, tuple)
                 self.assertEqual(len(actual), len(expected))
 
-                (actual_tensor, *actual_metadata) = actual
-                (expected_tensor, *expected_metadata) = expected
+                actual_tensor, *actual_metadata = actual
+                expected_tensor, *expected_metadata = expected
 
                 torch.testing.assert_close(actual_tensor, expected_tensor)
                 self.assertEqual(actual_tensor.dtype, torch.float32)

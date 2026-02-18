@@ -114,7 +114,7 @@ It involves generating embeddings, building an LSH index, and then applying a th
     python -m vdc.scripts.deduplicate_images --project tol10m --report-threshold 0.25 --distance-metric cosine --lsh-index results/tol10m/lsh_index.pkl results/tol10m_resnet_v1_50_c1_sscd_512_320px_crop1.0_5907929_logits.parquet
     ```
 
-    For fine-tuning the threshold, it's often useful to inspect groups in a dedicated notebook ([notebooks/explore_dedup.Rmd](notebooks/explore_dedup.Rmd)).
+    For fine-tuning the threshold, it's often useful to inspect groups in a dedicated notebook ([notebooks/explore_dedup.Rmd](../../notebooks/explore_dedup.Rmd)).
     This notebook allows you to visualize embedding distributions, review representative images from clusters, and assess the impact of different thresholds before applying deletion.
 
     The initial report showed 1,048,553 potential duplicate groups among 5,907,929 samples. Way bigger than usual, probably because Biology at large is more of a "fine grained classification". We'll have to explore and select a very conservative threshold.

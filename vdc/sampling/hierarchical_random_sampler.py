@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections import deque
 from typing import Optional
 
-from birder.common.lib import set_random_seeds
+from birder.common.training_utils import set_random_seeds
 
 from vdc.sampling.base_sampler import BaseSampler
 from vdc.sampling.cluster import ClusterInfo
@@ -56,7 +56,7 @@ class HierarchicalRandomSampler(BaseSampler):
             [(cluster_info.max_level, cid) for cid in top_level_cluster_ids if top_level_allocations.get(cid, 0) > 0]
         )
         while len(queue) > 0:
-            (current_level, parent_cluster_id) = queue.popleft()
+            current_level, parent_cluster_id = queue.popleft()
             if current_level == 0:  # Reached bottom, level 0 clusters contain samples directly
                 continue
 

@@ -2,7 +2,7 @@ birder
 matplotlib>=3.9.0
 numpy>=2.2.0
 Pillow>=11.0.0
-polars>=1.31.0
+polars>=1.34.0
 pt-kmeans>=0.6.0
 pyarrow>=20.0.0
 rich>=13.7.0

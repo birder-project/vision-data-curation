@@ -134,7 +134,7 @@ def _perform_remediation_action(file_path: str, action: RemediationAction, args:
 
         if action == RemediationAction.RESIZE:
             with Image.open(original_path) as img:
-                (width, height) = img.size
+                width, height = img.size
                 new_width = width
                 new_height = height
 
@@ -230,7 +230,7 @@ def validate_image(image_path: str, args: argparse.Namespace) -> ValidationResul
                 img = Image.open(image_path)
 
             # Get image dimensions
-            (width, height) = img.size
+            width, height = img.size
 
             # Check dimensions
             if args.min_width is not None:
@@ -515,8 +515,8 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
 
 
 def parse_args() -> argparse.Namespace:
-    (config_parser, parser) = get_args_parser()
-    (args_config, remaining) = config_parser.parse_known_args()
+    config_parser, parser = get_args_parser()
+    args_config, remaining = config_parser.parse_known_args()
 
     if args_config.config is None:
         logger.debug("No user config file specified. Loading default bundled config")

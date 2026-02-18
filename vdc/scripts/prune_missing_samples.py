@@ -121,8 +121,8 @@ def get_args_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]
 
 
 def parse_args() -> argparse.Namespace:
-    (config_parser, parser) = get_args_parser()
-    (args_config, remaining) = config_parser.parse_known_args()
+    config_parser, parser = get_args_parser()
+    args_config, remaining = config_parser.parse_known_args()
 
     if args_config.config is None:
         logger.debug("No user config file specified. Loading default bundled config")
